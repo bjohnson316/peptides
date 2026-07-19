@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Peptides — Injection Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0F1719;
+    --bg-2: #131E21;
+    --surface: #162326;
+    --surface-2: #1C2C30;
+    --line: #223338;
+    --ink: #E7EEEF;
+    --ink-dim: #9FB0B4;
+    --ink-faint: #647377;
+    --amber: #F2A93C;
+    --amber-dim: #6B5327;
+    --teal: #55D9C4;
+    --teal-dim: #1E4640;
+    --red: #F0645A;
+    --red-dim: #5A2724;
+    --focus: #7FD9FF;
+    --radius: 10px;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(85,217,196,0.06), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 80px;
+  }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  .disp{ font-family:'Space Grotesk', sans-serif; }
+
+  a{ color: var(--teal); }
+  button{ font-family: inherit; cursor:pointer; }
+  :focus-visible{ outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  /* ---------- shell ---------- */
+  .wrap{ max-width: 780px; margin: 0 auto; padding: 28px 18px 0; }
+
+  header.top{
+    display:flex; align-items:flex-end; justify-content:space-between;
+    gap:16px; flex-wrap:wrap; margin-bottom:22px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 18px;
+  }
+  .brand-eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--teal); margin: 0 0 6px;
+  }
+  h1.title{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight: 700; font-size: 28px; margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .subline{ color: var(--ink-dim); font-size: 13px; margin-top: 4px; }
+
+  /* shift strip: summary readout */
+  .shift-strip{
+    display:flex; gap: 18px; flex-wrap: wrap;
+  }
+  .shift-metric{ text-align:right; }
+  .shift-metric .n{
+    font-family:'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600;
+    line-height:1;
+  }
+  .shift-metric .l{
+    font-size: 10px; letter-spacing:.1em; text-transform:uppercase;
+    color: var(--ink-faint); margin-top: 4px;
+  }
+  .shift-metric.overdue .n{ color: var(--red); }
+  .shift-metric.today .n{ color: var(--amber); }
+  .shift-metric.ontrack .n{ color: var(--teal); }
+
+  /* ---------- section headers ---------- */
+  .section-head{
+    display:flex; align-items:center; gap: 10px; margin: 30px 0 12px;
+  }
+  .section-head h2{
+    font-family:'Space Grotesk', sans-serif; font-size:15px; font-weight:600;
+    margin:0; letter-spacing:.02em; white-space:nowrap;
+  }
+  .section-head .rule{ flex:1; height:1px; background: var(--line); }
+  .section-head .count{
+    font-family:'IBM Plex Mono', monospace; font-size: 11px; color: var(--ink-faint);
+  }
+
+  /* ---------- compound rows ---------- */
+  .rows{ display:flex; flex-direction:column; gap:10px; }
+  .row-card{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display:grid;
+    grid-template-columns: 22px 1fr auto;
+    align-items:center;
+    gap: 14px;
+    transition: border-color .15s ease;
+  }
+  .row-card:hover{ border-color:#2c4247; }
+
+  .led{
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--teal);
+    box-shadow: 0 0 0 3px rgba(85,217,196,.12);
+    justify-self:center;
+  }
+  .led.amber{ background: var(--amber); box-shadow: 0 0 0 3px rgba(242,169,60,.15); }
+  .led.red{ background: var(--red); box-shadow: 0 0 0 3px rgba(240,100,90,.15); }
+  .led.grey{ background: var(--ink-faint); box-shadow: none; }
+  .led.pulse{ animation: blip 1.7s ease-in-out infinite; }
+  @keyframes blip{
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.35); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .led.pulse{ animation: none; }
+  }
+
+  .row-main .name{ font-weight:600; font-size:15.5px; }
+  .row-main .meta{
+    font-family:'IBM Plex Mono', monospace; font-size:11.5px;
+    color: var(--ink-dim); margin-top: 3px; display:flex; gap:10px; flex-wrap:wrap;
+  }
+  .row-main .status-text{ font-size: 12px; margin-top:5px; }
+  .status-text.overdue{ color: var(--red); }
+  .status-text.today{ color: var(--amber); }
+  .status-text.soon{ color: var(--ink-dim); }
+  .status-text.ontrack{ color: var(--teal); }
+  .status-text.new{ color: var(--ink-faint); font-style:italic; }
+
+  .row-actions{ display:flex; gap:8px; align-items:center; }
+  .btn{
+    border-radius: 7px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--ink);
+    padding: 8px 12px; font-size: 12.5px; font-weight: 600;
+    display:inline-flex; align-items:center; gap:6px;
+  }
+  .btn:hover{ border-color:#375055; }
+  .btn.primary{ background: var(--teal-dim); border-color: #2a5b52; color:#c8fff2; }
+  .btn.primary:hover{ border-color: var(--teal); }
+  .btn.ghost{ background:transparent; border-color:transparent; color: var(--ink-faint); padding:8px 6px; }
+  .btn.ghost:hover{ color: var(--ink); }
+  .btn.small{ padding:6px 9px; font-size:11.5px; }
+  .btn.danger{ color:#ffb4ad; }
+
+  .add-row{
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    text-align:center;
+    background: transparent;
+    color: var(--ink-faint);
+    font-size: 13px;
+    width:100%;
+  }
+  .add-row:hover{ color: var(--teal); border-color: var(--teal-dim); }
+
+  /* ---------- history ---------- */
+  .history-controls{ display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  select, input[type=text], input[type=number], input[type=datetime-local]{
+    background: var(--surface-2); border:1px solid var(--line); color: var(--ink);
+    border-radius:7px; padding:8px 10px; font-size:13px; font-family:inherit;
+  }
+  .log-list{ display:flex; flex-direction:column; }
+  .log-entry{
+    display:grid; grid-template-columns: 92px 1fr auto;
+    gap: 12px; align-items:baseline;
+    padding: 10px 4px; border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .log-entry:last-child{ border-bottom:none; }
+  .log-entry .ts{ font-family:'IBM Plex Mono', monospace; color: var(--ink-dim); font-size:11.5px; }
+  .log-entry .what b{ color: var(--ink); }
+  .log-entry .what{ color: var(--ink-dim); }
+  .log-entry .site{ font-family:'IBM Plex Mono', monospace; font-size:11px; color: var(--ink-faint); }
+  .empty{ color: var(--ink-faint); font-size:13px; padding: 18px 4px; text-align:center; }
+
+  /* ---------- footer / data tools ---------- */
+  footer{
+    max-width:780px; margin: 40px auto 0; padding: 18px;
+    border-top:1px solid var(--line);
+    display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:10px;
+  }
+  .footer-note{ font-size:11.5px; color: var(--ink-faint); max-width:440px; line-height:1.5; }
+  .footer-actions{ display:flex; gap:8px; }
+
+  /* ---------- modal ---------- */
+  .overlay{
+    position:fixed; inset:0; background: rgba(6,10,11,.72);
+    display:flex; align-items:flex-end; justify-content:center;
+    z-index: 50; padding: 0;
+  }
+  @media (min-width: 600px){
+    .overlay{ align-items:center; padding: 20px; }
+  }
+  .modal{
+    background: var(--bg-2); border:1px solid var(--line);
+    border-radius: 14px 14px 0 0;
+    width:100%; max-width: 460px; max-height: 90vh; overflow-y:auto;
+    padding: 20px 20px 26px;
+  }
+  @media (min-width: 600px){ .modal{ border-radius:14px; } }
+  .modal h3{ font-family:'Space Grotesk',sans-serif; margin:0 0 14px; font-size:18px; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color: var(--ink-faint); margin-bottom:6px; }
+  .field input, .field select{ width:100%; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .field{ flex:1; }
+  .chip-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .chip{
+    border:1px solid var(--line); background: var(--surface-2); color: var(--ink-dim);
+    border-radius:20px; padding:7px 13px; font-size:12.5px;
+  }
+  .chip.active{ background: var(--teal-dim); border-color: var(--teal); color:#d3fff5; }
+  .modal-actions{ display:flex; justify-content:space-between; margin-top:18px; gap:10px; }
+  .modal-actions .right{ display:flex; gap:8px; }
+  .hint{ font-size:11px; color: var(--ink-faint); margin-top:6px; }
+
+  .sync-pill{
+    display:inline-flex; align-items:center; gap:7px;
+    background: var(--surface-2); border:1px solid var(--line);
+    border-radius: 20px; padding: 6px 12px 6px 10px;
+    font-family:'IBM Plex Mono', monospace; font-size: 11px; color: var(--ink-dim);
+    margin-top: 10px;
+  }
+  .sync-pill:hover{ border-color:#375055; }
+  .sync-pill .dot{ width:7px; height:7px; border-radius:50%; background: var(--ink-faint); flex:none; }
+  .sync-pill.connected .dot{ background: var(--teal); }
+  .sync-pill.syncing .dot{ background: var(--amber); animation: blip 1s ease-in-out infinite; }
+  .sync-pill.error .dot{ background: var(--red); }
+  @media (prefers-reduced-motion: reduce){ .sync-pill.syncing .dot{ animation:none; } }
+
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background: var(--surface-2); border:1px solid var(--teal-dim); color:#d3fff5;
+    padding:10px 16px; border-radius:8px; font-size:13px; z-index:60;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="brand-eyebrow">Peptides</p>
+      <h1 class="title">Injection Tracker</h1>
+      <p class="subline">Local, private, on this device.</p>
+      <button class="sync-pill" id="btn-github" type="button">
+        <span class="dot"></span><span id="sync-pill-label">Local only — click to sync</span>
+      </button>
+    </div>
+    <div class="shift-strip">
+      <div class="shift-metric overdue"><div class="n mono" id="metric-overdue">0</div><div class="l">Overdue</div></div>
+      <div class="shift-metric today"><div class="n mono" id="metric-today">0</div><div class="l">Due Today</div></div>
+      <div class="shift-metric ontrack"><div class="n mono" id="metric-ontrack">0</div><div class="l">On Track</div></div>
+    </div>
+  </header>
+
+  <div class="section-head">
+    <h2>Compounds</h2>
+    <div class="rule"></div>
+    <span class="count mono" id="compound-count">0</span>
+  </div>
+  <div class="rows" id="compound-rows"></div>
+  <button class="add-row" id="btn-add-compound" style="margin-top:10px;">+ Add compound</button>
+
+  <div class="section-head">
+    <h2>History</h2>
+    <div class="rule"></div>
+  </div>
+  <div class="history-controls">
+    <select id="history-filter"><option value="all">All compounds</option></select>
+  </div>
+  <div class="log-list" id="log-list"></div>
+</div>
+
+<footer>
+  <p class="footer-note">Tracking tool only — not medical guidance. Doses and schedules are whatever you enter; the app just does the math on when the next one's due. Data lives in this browser unless you connect GitHub sync (top-left pill) — use the buttons below for a manual local backup either way.</p>
+  <div class="footer-actions">
+    <button class="btn small" id="btn-export">Export backup</button>
+    <button class="btn small" id="btn-import">Import backup</button>
+    <input type="file" id="import-file" accept="application/json" style="display:none">
+  </div>
+</footer>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  const STORAGE_KEY = "injTrackerData_v1";
+  const GH_CONFIG_KEY = "injTrackerGithubConfig_v1";
+  const GIST_FILENAME_DEFAULT = "protocol-log-data.json";
+  const DAY_MS = 86400000;
+
+  const FREQUENCIES = {
+    daily:    { label: "Daily",           days: 1  },
+    weekly:   { label: "Weekly",          days: 7  },
+    biweekly: { label: "Every 2 weeks",   days: 14 }
+  };
+
+  const DEFAULT_SITES = [
+    "Left abdomen", "Right abdomen", "Left thigh", "Right thigh",
+    "Left glute", "Right glute", "Left delt", "Right delt"
+  ];
+
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+  function loadData(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw) return JSON.parse(raw);
+    }catch(e){ console.error("Load failed", e); }
+    return seedData();
+  }
+
+  function seedData(){
+    const now = Date.now();
+    return {
+      compounds: [
+        { id: uid(), name: "GLP-1", doseAmount: "", doseUnit: "mg", frequency: "weekly",
+          sites: ["Left abdomen","Right abdomen","Left thigh","Right thigh"], siteIndex: 0 },
+        { id: uid(), name: "BPC-157 / TB-500", doseAmount: "", doseUnit: "mg", frequency: "daily",
+          sites: ["Left abdomen","Right abdomen"], siteIndex: 0 },
+        { id: uid(), name: "Testosterone", doseAmount: "", doseUnit: "mg", frequency: "weekly",
+          sites: ["Left glute","Right glute","Left delt","Right delt"], siteIndex: 0 },
+        { id: uid(), name: "Ipamorelin / CJC-1295", doseAmount: "", doseUnit: "mcg", frequency: "daily",
+          sites: ["Left abdomen","Right abdomen"], siteIndex: 0 }
+      ],
+      logs: []
+    };
+  }
+
+  function saveData(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  let state = loadData();
+
+  // ---------- GitHub sync (private Gist as the data store) ----------
+  function getGithubConfig(){
+    try{ return JSON.parse(localStorage.getItem(GH_CONFIG_KEY)); }catch(e){ return null; }
+  }
+  function setGithubConfig(cfg){
+    localStorage.setItem(GH_CONFIG_KEY, JSON.stringify(cfg));
+  }
+  function clearGithubConfig(){
+    localStorage.removeItem(GH_CONFIG_KEY);
+  }
+
+  async function ghRequest(path, opts){
+    opts = opts || {};
+    const cfg = getGithubConfig();
+    if(!cfg || !cfg.token) throw new Error("Not connected");
+    const res = await fetch(`https://api.github.com${path}`, Object.assign({}, opts, {
+      headers: Object.assign({
+        "Authorization": `Bearer ${cfg.token}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+      }, opts.headers || {})
+    }));
+    if(!res.ok){
+      const body = await res.text().catch(()=> "");
+      let msg = `GitHub API ${res.status}`;
+      if(res.status === 401) msg = "Bad or expired token";
+      else if(res.status === 404) msg = "Gist not found (check the Gist ID)";
+      else if(res.status === 403) msg = "Forbidden — check token scope / rate limit";
+      throw new Error(msg + (body ? `: ${body.slice(0,180)}` : ""));
+    }
+    return res.json();
+  }
+
+  async function ghCreateGist(content){
+    const data = await ghRequest("/gists", {
+      method: "POST",
+      body: JSON.stringify({
+        description: "Peptides — injection tracker data",
+        public: false,
+        files: { [GIST_FILENAME_DEFAULT]: { content } }
+      })
+    });
+    return { gistId: data.id, filename: GIST_FILENAME_DEFAULT };
+  }
+
+  async function ghFetchGist(gistId){
+    const data = await ghRequest(`/gists/${gistId}`);
+    const filenames = Object.keys(data.files || {});
+    if(filenames.length === 0) throw new Error("That gist has no files in it");
+    const filename = filenames[0];
+    return { filename, content: data.files[filename].content };
+  }
+
+  async function ghUpdateGist(gistId, filename, content){
+    await ghRequest(`/gists/${gistId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ files: { [filename]: { content } } })
+    });
+  }
+
+  const syncPillEl = document.getElementById("btn-github");
+  const syncPillLabel = document.getElementById("sync-pill-label");
+  function setSyncStatus(kind, detail){
+    syncPillEl.className = "sync-pill" + (kind ? " " + kind : "");
+    const labels = {
+      offline: "Local only — click to sync",
+      pending: "Change pending…",
+      syncing: "Syncing…",
+      connected: "Synced to GitHub",
+      error: "Sync error — click to fix"
+    };
+    syncPillLabel.textContent = labels[kind] || labels.offline;
+    if(detail) syncPillEl.title = detail; else syncPillEl.removeAttribute("title");
+  }
+
+  let syncTimer = null;
+  function scheduleSync(){
+    const cfg = getGithubConfig();
+    if(!cfg || !cfg.token || !cfg.gistId) return;
+    setSyncStatus("pending");
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(async ()=>{
+      setSyncStatus("syncing");
+      try{
+        await ghUpdateGist(cfg.gistId, cfg.filename || GIST_FILENAME_DEFAULT, JSON.stringify(state, null, 2));
+        setSyncStatus("connected");
+      }catch(err){
+        console.error(err);
+        setSyncStatus("error", err.message);
+        toast("GitHub sync failed — kept locally");
+      }
+    }, 1200);
+  }
+
+  function persist(){
+    saveData();
+    scheduleSync();
+  }
+
+  async function initGithubSync(){
+    const cfg = getGithubConfig();
+    if(!cfg || !cfg.token || !cfg.gistId){
+      setSyncStatus("offline");
+      return;
+    }
+    setSyncStatus("syncing");
+    try{
+      const { filename, content } = await ghFetchGist(cfg.gistId);
+      if(!cfg.filename || cfg.filename !== filename){
+        cfg.filename = filename;
+        setGithubConfig(cfg);
+      }
+      const parsed = JSON.parse(content);
+      if(parsed && Array.isArray(parsed.compounds) && Array.isArray(parsed.logs)){
+        state = parsed;
+        saveData();
+        render();
+      }
+      setSyncStatus("connected");
+    }catch(err){
+      console.error(err);
+      setSyncStatus("error", err.message);
+      toast("Couldn't reach GitHub — showing last local copy");
+    }
+  }
+
+  // ---------- derived data ----------
+  function lastLogFor(compoundId){
+    let last = null;
+    for(const l of state.logs){
+      if(l.compoundId !== compoundId) continue;
+      if(!last || l.ts > last.ts) last = l;
+    }
+    return last;
+  }
+
+  function nextDueFor(compound){
+    const last = lastLogFor(compound.id);
+    if(!last) return null;
+    const intervalDays = FREQUENCIES[compound.frequency].days;
+    return last.ts + intervalDays * DAY_MS;
+  }
+
+  function statusFor(compound){
+    const due = nextDueFor(compound);
+    if(due === null) return { key: "new", label: "Not started — log first dose" };
+    const now = Date.now();
+    const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+    const dueDay = new Date(due); dueDay.setHours(0,0,0,0);
+    const daysUntil = Math.round((dueDay - startOfToday) / DAY_MS);
+
+    if(daysUntil < 0){
+      const n = Math.abs(daysUntil);
+      return { key:"overdue", label: `Overdue by ${n} day${n===1?"":"s"}`, due };
+    }
+    if(daysUntil === 0) return { key:"today", label: "Due today", due };
+    if(daysUntil === 1) return { key:"soon", label: "Due tomorrow", due };
+    return { key:"ontrack", label: `Due in ${daysUntil} days`, due };
+  }
+
+  function fmtDate(ts){
+    return new Date(ts).toLocaleDateString(undefined, { month:"short", day:"numeric" });
+  }
+  function fmtDateTime(ts){
+    return new Date(ts).toLocaleString(undefined, { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+  }
+  function fmtTimeShort(ts){
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+  }
+
+  function nextSite(compound){
+    if(!compound.sites || compound.sites.length === 0) return "";
+    const idx = (compound.siteIndex || 0) % compound.sites.length;
+    return compound.sites[idx];
+  }
+
+  // ---------- rendering ----------
+  const rowsEl = document.getElementById("compound-rows");
+  const logListEl = document.getElementById("log-list");
+  const historyFilterEl = document.getElementById("history-filter");
+  const compoundCountEl = document.getElementById("compound-count");
+
+  function render(){
+    renderMetrics();
+    renderRows();
+    renderHistoryFilter();
+    renderHistory();
+    saveData();
+  }
+
+  function renderMetrics(){
+    let overdue = 0, today = 0, ontrack = 0;
+    state.compounds.forEach(c=>{
+      const s = statusFor(c);
+      if(s.key === "overdue") overdue++;
+      else if(s.key === "today") today++;
+      else if(s.key === "soon" || s.key === "ontrack") ontrack++;
+    });
+    document.getElementById("metric-overdue").textContent = overdue;
+    document.getElementById("metric-today").textContent = today;
+    document.getElementById("metric-ontrack").textContent = ontrack;
+  }
+
+  function renderRows(){
+    compoundCountEl.textContent = state.compounds.length;
+    rowsEl.innerHTML = "";
+    if(state.compounds.length === 0){
+      rowsEl.innerHTML = `<div class="empty">No compounds yet. Add one to start tracking.</div>`;
+      return;
+    }
+    state.compounds.forEach(c=>{
+      const s = statusFor(c);
+      const ledClass = s.key === "overdue" ? "red" : s.key === "today" ? "amber pulse" : s.key === "new" ? "grey" : "";
+      const last = lastLogFor(c.id);
+      const freqLabel = FREQUENCIES[c.frequency].label;
+      const doseStr = c.doseAmount ? `${c.doseAmount}${c.doseUnit||""}` : null;
+
+      const card = document.createElement("div");
+      card.className = "row-card";
+      card.innerHTML = `
+        <div class="led ${ledClass}"></div>
+        <div class="row-main">
+          <div class="name">${escapeHtml(c.name)}</div>
+          <div class="meta">
+            <span>${freqLabel}</span>
+            ${doseStr ? `<span>${escapeHtml(doseStr)}</span>` : ""}
+            ${last ? `<span>last: ${fmtDate(last.ts)}</span>` : ""}
+          </div>
+          <div class="status-text ${s.key}">${s.label}</div>
+        </div>
+        <div class="row-actions">
+          <button class="btn primary small" data-log="${c.id}">Log dose</button>
+          <button class="btn ghost" data-edit="${c.id}" aria-label="Edit ${escapeHtml(c.name)}">⋯</button>
+        </div>
+      `;
+      rowsEl.appendChild(card);
+    });
+
+    rowsEl.querySelectorAll("[data-log]").forEach(btn=>{
+      btn.addEventListener("click", ()=> openLogModal(btn.dataset.log));
+    });
+    rowsEl.querySelectorAll("[data-edit]").forEach(btn=>{
+      btn.addEventListener("click", ()=> openEditModal(btn.dataset.edit));
+    });
+  }
+
+  function renderHistoryFilter(){
+    const current = historyFilterEl.value || "all";
+    historyFilterEl.innerHTML = `<option value="all">All compounds</option>` +
+      state.compounds.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    historyFilterEl.value = current;
+    if(historyFilterEl.value !== current) historyFilterEl.value = "all";
+  }
+
+  function renderHistory(){
+    const filter = historyFilterEl.value || "all";
+    let logs = state.logs.slice().sort((a,b)=> b.ts - a.ts);
+    if(filter !== "all") logs = logs.filter(l=> l.compoundId === filter);
+    logListEl.innerHTML = "";
+    if(logs.length === 0){
+      logListEl.innerHTML = `<div class="empty">No doses logged yet.</div>`;
+      return;
+    }
+    logs.slice(0, 200).forEach(l=>{
+      const c = state.compounds.find(c=>c.id === l.compoundId);
+      const name = c ? c.name : "(deleted compound)";
+      const entry = document.createElement("div");
+      entry.className = "log-entry";
+      entry.innerHTML = `
+        <div class="ts">${fmtTimeShort(l.ts)}</div>
+        <div class="what"><b>${escapeHtml(name)}</b>${l.dose ? " — " + escapeHtml(l.dose) : ""}${l.note ? `<br><span style="font-size:11.5px;">${escapeHtml(l.note)}</span>` : ""}</div>
+        <div class="site">${escapeHtml(l.site || "")}</div>
+      `;
+      logListEl.appendChild(entry);
+    });
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  historyFilterEl.addEventListener("change", renderHistory);
+
+  // ---------- toast ----------
+  function toast(msg){
+    const root = document.getElementById("toast-root");
+    root.innerHTML = "";
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = msg;
+    root.appendChild(el);
+    setTimeout(()=>{ el.remove(); }, 2200);
+  }
+
+  // ---------- modal helpers ----------
+  const modalRoot = document.getElementById("modal-root");
+  function closeModal(){ modalRoot.innerHTML = ""; }
+  function openModal(html){
+    modalRoot.innerHTML = `<div class="overlay" id="overlay"><div class="modal">${html}</div></div>`;
+    document.getElementById("overlay").addEventListener("click", (e)=>{
+      if(e.target.id === "overlay") closeModal();
+    });
+  }
+
+  // ---------- log dose modal ----------
+  function openLogModal(compoundId){
+    const c = state.compounds.find(c=>c.id === compoundId);
+    if(!c) return;
+    const suggestedSite = nextSite(c);
+    const nowLocal = toLocalInputValue(new Date());
+    const siteOptions = (c.sites||[]).map(s=>`<option value="${escapeHtml(s)}" ${s===suggestedSite?"selected":""}>${escapeHtml(s)}</option>`).join("")
+      + `<option value="__custom">Other…</option>`;
+
+    openModal(`
+      <h3>Log dose — ${escapeHtml(c.name)}</h3>
+      <div class="field">
+        <label for="f-when">Date &amp; time</label>
+        <input type="datetime-local" id="f-when" value="${nowLocal}">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="f-dose">Dose</label>
+          <input type="text" id="f-dose" placeholder="${c.doseAmount ? c.doseAmount+(c.doseUnit||'') : 'e.g. 0.5mg'}">
+        </div>
+        <div class="field">
+          <label for="f-site">Site</label>
+          <select id="f-site">${siteOptions}</select>
+        </div>
+      </div>
+      <div class="field" id="f-custom-site-wrap" style="display:none;">
+        <label for="f-custom-site">Custom site</label>
+        <input type="text" id="f-custom-site" placeholder="Site name">
+      </div>
+      <div class="field">
+        <label for="f-note">Note (optional)</label>
+        <input type="text" id="f-note" placeholder="Anything worth remembering">
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="f-cancel">Cancel</button>
+        <button class="btn primary" id="f-save">Save dose</button>
+      </div>
+    `);
+
+    document.getElementById("f-site").addEventListener("change", (e)=>{
+      document.getElementById("f-custom-site-wrap").style.display = e.target.value === "__custom" ? "block" : "none";
+    });
+    document.getElementById("f-cancel").addEventListener("click", closeModal);
+    document.getElementById("f-save").addEventListener("click", ()=>{
+      const whenVal = document.getElementById("f-when").value;
+      const ts = whenVal ? new Date(whenVal).getTime() : Date.now();
+      let site = document.getElementById("f-site").value;
+      if(site === "__custom"){
+        site = document.getElementById("f-custom-site").value.trim() || "Unspecified";
+      }
+      const dose = document.getElementById("f-dose").value.trim();
+      const note = document.getElementById("f-note").value.trim();
+
+      state.logs.push({ id: uid(), compoundId: c.id, ts, site, dose, note });
+
+      if(c.sites && c.sites.length){
+        const idx = c.sites.indexOf(site);
+        c.siteIndex = idx >= 0 ? (idx + 1) % c.sites.length : (c.siteIndex||0);
+      }
+
+      closeModal();
+      render();
+      persist();
+      toast(`Logged — ${c.name}`);
+    });
+  }
+
+  function toLocalInputValue(d){
+    const pad = n => String(n).padStart(2,"0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  // ---------- add / edit compound modal ----------
+  function openEditModal(compoundId){
+    const isNew = !compoundId;
+    const c = isNew
+      ? { id: uid(), name: "", doseAmount: "", doseUnit: "mg", frequency: "weekly", sites: DEFAULT_SITES.slice(0,4), siteIndex: 0 }
+      : state.compounds.find(c=>c.id === compoundId);
+    if(!c) return;
+
+    const freqChips = Object.keys(FREQUENCIES).map(key=>
+      `<button type="button" class="chip ${c.frequency===key?"active":""}" data-freq="${key}">${FREQUENCIES[key].label}</button>`
+    ).join("");
+
+    openModal(`
+      <h3>${isNew ? "Add compound" : "Edit compound"}</h3>
+      <div class="field">
+        <label for="e-name">Name</label>
+        <input type="text" id="e-name" value="${escapeHtml(c.name)}" placeholder="e.g. GLP-1">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="e-dose">Usual dose</label>
+          <input type="text" id="e-dose" value="${escapeHtml(c.doseAmount)}" placeholder="0.5">
+        </div>
+        <div class="field">
+          <label for="e-unit">Unit</label>
+          <input type="text" id="e-unit" value="${escapeHtml(c.doseUnit||'')}" placeholder="mg / mcg / IU">
+        </div>
+      </div>
+      <div class="field">
+        <label>Frequency</label>
+        <div class="chip-row" id="e-freq-row">${freqChips}</div>
+      </div>
+      <div class="field">
+        <label for="e-sites">Injection sites (rotation, comma-separated)</label>
+        <input type="text" id="e-sites" value="${escapeHtml((c.sites||[]).join(", "))}">
+        <div class="hint">The tracker suggests the next site in this list each time you log a dose.</div>
+      </div>
+      <div class="modal-actions">
+        <div>${!isNew ? `<button class="btn danger small" id="e-delete">Delete</button>` : ""}</div>
+        <div class="right">
+          <button class="btn ghost" id="e-cancel">Cancel</button>
+          <button class="btn primary" id="e-save">${isNew ? "Add" : "Save"}</button>
+        </div>
+      </div>
+    `);
+
+    let selectedFreq = c.frequency;
+    document.getElementById("e-freq-row").addEventListener("click", (e)=>{
+      const btn = e.target.closest("[data-freq]");
+      if(!btn) return;
+      selectedFreq = btn.dataset.freq;
+      document.querySelectorAll("#e-freq-row .chip").forEach(ch=>ch.classList.remove("active"));
+      btn.classList.add("active");
+    });
+
+    document.getElementById("e-cancel").addEventListener("click", closeModal);
+
+    if(!isNew){
+      document.getElementById("e-delete").addEventListener("click", ()=>{
+        if(!confirm(`Delete ${c.name}? Its logged history will be kept but unlinked.`)) return;
+        state.compounds = state.compounds.filter(x=>x.id !== c.id);
+        closeModal();
+        render();
+        persist();
+        toast("Compound deleted");
+      });
+    }
+
+    document.getElementById("e-save").addEventListener("click", ()=>{
+      const name = document.getElementById("e-name").value.trim();
+      if(!name){ toast("Name it before saving"); return; }
+      c.name = name;
+      c.doseAmount = document.getElementById("e-dose").value.trim();
+      c.doseUnit = document.getElementById("e-unit").value.trim();
+      c.frequency = selectedFreq;
+      c.sites = document.getElementById("e-sites").value.split(",").map(s=>s.trim()).filter(Boolean);
+      if(c.sites.length === 0) c.sites = DEFAULT_SITES.slice(0,2);
+      c.siteIndex = c.siteIndex || 0;
+
+      if(isNew) state.compounds.push(c);
+      closeModal();
+      render();
+      persist();
+      toast(isNew ? "Compound added" : "Saved");
+    });
+  }
+
+  // ---------- GitHub settings modal ----------
+  function openGithubSettingsModal(){
+    const cfg = getGithubConfig() || {};
+    const connected = !!(cfg.token && cfg.gistId);
+
+    openModal(`
+      <h3>Sync to GitHub</h3>
+      <p class="hint" style="margin-bottom:14px; line-height:1.5;">
+        Data is stored in a private GitHub Gist. Your token is saved only in this browser's local
+        storage and is sent straight to api.github.com — nowhere else. Use a classic personal
+        access token scoped to <b>gist</b> only (no other permissions needed), and revoke it
+        anytime from GitHub → Settings → Developer settings → Personal access tokens.
+      </p>
+      <div class="field">
+        <label for="g-token">Personal access token</label>
+        <input type="password" id="g-token" value="${escapeHtml(cfg.token || "")}" placeholder="ghp_...">
+      </div>
+      <div class="field">
+        <label for="g-gistid">Gist ID <span style="text-transform:none; letter-spacing:0;">— leave blank to create a new one</span></label>
+        <input type="text" id="g-gistid" value="${escapeHtml(cfg.gistId || "")}" placeholder="e.g. 8a3f9c2b1e7d4f...">
+      </div>
+      ${connected ? `
+        <div class="field-row">
+          <button class="btn small" id="g-push" type="button" style="flex:1;">Push current data now</button>
+          <button class="btn small" id="g-pull" type="button" style="flex:1;">Pull latest from GitHub</button>
+        </div>
+      ` : ""}
+      <div class="modal-actions">
+        <div>${connected ? `<button class="btn danger small" id="g-disconnect" type="button">Disconnect</button>` : ""}</div>
+        <div class="right">
+          <button class="btn ghost" id="g-cancel" type="button">Cancel</button>
+          <button class="btn primary" id="g-connect" type="button">${connected ? "Save" : "Connect"}</button>
+        </div>
+      </div>
+      <p class="hint" id="g-status" style="margin-top:12px;"></p>
+    `);
+
+    document.getElementById("g-cancel").addEventListener("click", closeModal);
+
+    if(connected){
+      document.getElementById("g-disconnect").addEventListener("click", ()=>{
+        if(!confirm("Disconnect from GitHub? The gist and its data stay put — this only stops syncing from this browser.")) return;
+        clearGithubConfig();
+        setSyncStatus("offline");
+        closeModal();
+        toast("Disconnected");
+      });
+      document.getElementById("g-push").addEventListener("click", async ()=>{
+        const statusEl = document.getElementById("g-status");
+        statusEl.textContent = "Pushing…";
+        try{
+          await ghUpdateGist(cfg.gistId, cfg.filename || GIST_FILENAME_DEFAULT, JSON.stringify(state, null, 2));
+          setSyncStatus("connected");
+          statusEl.textContent = "Pushed current data to GitHub.";
+        }catch(err){
+          statusEl.textContent = "Push failed: " + err.message;
+        }
+      });
+      document.getElementById("g-pull").addEventListener("click", async ()=>{
+        const statusEl = document.getElementById("g-status");
+        if(!confirm("Replace what's shown here with the data from GitHub?")) return;
+        statusEl.textContent = "Pulling…";
+        try{
+          const { filename, content } = await ghFetchGist(cfg.gistId);
+          const parsed = JSON.parse(content);
+          if(parsed && Array.isArray(parsed.compounds) && Array.isArray(parsed.logs)){
+            state = parsed;
+            cfg.filename = filename;
+            setGithubConfig(cfg);
+            saveData();
+            render();
+            setSyncStatus("connected");
+            closeModal();
+            toast("Pulled latest from GitHub");
+          } else {
+            statusEl.textContent = "That gist doesn't look like a Peptides backup.";
+          }
+        }catch(err){
+          statusEl.textContent = "Pull failed: " + err.message;
+        }
+      });
+    }
+
+    document.getElementById("g-connect").addEventListener("click", async ()=>{
+      const token = document.getElementById("g-token").value.trim();
+      const gistId = document.getElementById("g-gistid").value.trim();
+      const statusEl = document.getElementById("g-status");
+      if(!token){ statusEl.textContent = "Enter a token first."; return; }
+      statusEl.textContent = "Connecting…";
+      try{
+        if(gistId){
+          setGithubConfig({ token, gistId, filename: null });
+          const { filename, content } = await ghFetchGist(gistId);
+          setGithubConfig({ token, gistId, filename });
+          let loaded = false;
+          try{
+            const parsed = JSON.parse(content);
+            if(parsed && Array.isArray(parsed.compounds) && Array.isArray(parsed.logs)){
+              if(confirm("Load the data already in this Gist? Cancel to keep what's shown here and push it up instead.")){
+                state = parsed;
+                loaded = true;
+              }
+            }
+          }catch(e){ /* not valid JSON yet — fine, we'll push below */ }
+          if(!loaded){
+            await ghUpdateGist(gistId, filename, JSON.stringify(state, null, 2));
+          }
+        } else {
+          setGithubConfig({ token, gistId: null, filename: null });
+          const created = await ghCreateGist(JSON.stringify(state, null, 2));
+          setGithubConfig({ token, gistId: created.gistId, filename: created.filename });
+        }
+        saveData();
+        render();
+        setSyncStatus("connected");
+        closeModal();
+        toast("Connected to GitHub");
+      }catch(err){
+        console.error(err);
+        statusEl.textContent = "Couldn't connect — check the token and Gist ID. (" + err.message + ")";
+      }
+    });
+  }
+
+  document.getElementById("btn-add-compound").addEventListener("click", ()=> openEditModal(null));
+  document.getElementById("btn-github").addEventListener("click", openGithubSettingsModal);
+
+  // ---------- export / import ----------
+  document.getElementById("btn-export").addEventListener("click", ()=>{
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `protocol-log-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("Backup downloaded");
+  });
+
+  const importInput = document.getElementById("import-file");
+  document.getElementById("btn-import").addEventListener("click", ()=> importInput.click());
+  importInput.addEventListener("change", (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const parsed = JSON.parse(reader.result);
+        if(!parsed.compounds || !parsed.logs) throw new Error("Missing fields");
+        if(!confirm("This replaces all current data with the backup file. Continue?")) return;
+        state = parsed;
+        render();
+        persist();
+        toast("Backup imported");
+      }catch(err){
+        alert("Couldn't read that file — make sure it's a backup exported from this app.");
+      }
+    };
+    reader.readAsText(file);
+    importInput.value = "";
+  });
+
+  render();
+  initGithubSync();
+})();
+</script>
+</body>
+</html>
