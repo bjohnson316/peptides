@@ -19,14 +19,16 @@ everything is stored in your browser's local storage on whatever device you use 
 ## Hosting it on GitHub Pages
 
 1. Create a new GitHub repository (e.g. `protocol-log`).
-2. Add `index.html` from this folder to the repo (root of the repo, or a `/docs` folder — your choice).
+2. Add `index.html` **and `manifest.json`** from this folder to the repo, in the same folder
+   (root of the repo, or a `/docs` folder — your choice, but they need to sit side by side).
 3. In the repo, go to **Settings → Pages**.
 4. Under **Build and deployment → Source**, choose **Deploy from a branch**.
 5. Pick the branch (usually `main`) and the folder (`/root` or `/docs`, matching where you put `index.html`).
 6. Save. GitHub will give you a URL like `https://<your-username>.github.io/protocol-log/` —
    it can take a minute or two to go live.
 7. Optional: add it to your phone's home screen (Share → Add to Home Screen in Safari/Chrome) so it
-   opens like an app.
+   opens like an app — the syringe icon shows up automatically as long as `manifest.json` was
+   uploaded alongside `index.html`.
 
 ## Syncing data across devices via GitHub
 
