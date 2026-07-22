@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Peptides Tracker</title>
+<title>Peptides — Injection Tracker</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230F1719'/%3E%3Cg transform='rotate(45 12 12)' fill='none' stroke='%2355D9C4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='3' x2='12' y2='6'/%3E%3Crect x='8.5' y='6' width='7' height='9' rx='1.3'/%3E%3Cline x1='6.5' y1='15' x2='17.5' y2='15'/%3E%3Cline x1='12' y1='15' x2='12' y2='19.5'/%3E%3Cline x1='9.3' y1='19.5' x2='14.7' y2='19.5'/%3E%3Cline x1='10' y1='9' x2='14' y2='9'/%3E%3Cline x1='10' y1='11.7' x2='14' y2='11.7'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0F1719">
@@ -263,9 +263,9 @@
 <div class="wrap">
   <header class="top">
     <div>
-      <p class="brand-eyebrow"></p>
-      <h1 class="title">Peptides Tracker</h1>
-      <p class="subline"></p>
+      <p class="brand-eyebrow">Peptides</p>
+      <h1 class="title">Injection Tracker</h1>
+      <p class="subline">Local, private, on this device.</p>
       <button class="sync-pill" id="btn-github" type="button">
         <span class="dot"></span><span id="sync-pill-label">Local only — click to sync</span>
       </button>
@@ -1071,115 +1071,151 @@
   document.getElementById("btn-add-compound").addEventListener("click", ()=> openEditModal(null));
   document.getElementById("btn-github").addEventListener("click", openGithubSettingsModal);
 
-  // ---------- export history to PDF ----------
-  function truncateText(str, n){
+  // ---------- export history to PDF (hand-built PDF bytes, zero external dependencies) ----------
+  function pdfEscapeText(str){
     str = String(str == null ? "" : str);
-    return str.length > n ? str.slice(0, n-1) + "…" : str;
+    str = str.replace(/[^\x20-\x7E]/g, "?"); // keep to safe single-byte printable ASCII
+    str = str.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+    return str;
+  }
+  function pdfTruncate(str, n){
+    str = String(str == null ? "" : str);
+    return str.length > n ? str.slice(0, n-1) + "..." : str;
   }
 
-  const JSPDF_SRC = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js";
-  let jsPDFLoadPromise = null;
-  function loadJsPDF(){
-    if(window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
-    if(jsPDFLoadPromise) return jsPDFLoadPromise;
-    jsPDFLoadPromise = new Promise((resolve, reject)=>{
-      const script = document.createElement("script");
-      script.src = JSPDF_SRC;
-      script.onload = ()=>{
-        if(window.jspdf && window.jspdf.jsPDF) resolve(window.jspdf.jsPDF);
-        else reject(new Error("PDF library loaded but wasn't found on the page"));
-      };
-      script.onerror = ()=>{
-        jsPDFLoadPromise = null; // allow retry on next click
-        reject(new Error("Couldn't reach the PDF library — check your connection and try again"));
-      };
-      document.head.appendChild(script);
-    });
-    return jsPDFLoadPromise;
-  }
+  function buildHistoryPdfBytes(rowsData, filterName, generatedAt){
+    const PAGE_W = 612, PAGE_H = 792;
+    const MARGIN_X = 40;
+    const TOP_Y = 742;
+    const BOTTOM_Y = 50;
+    const LINE_H = 15;
+    const COLS = { date: MARGIN_X, name: MARGIN_X+95, dose: MARGIN_X+255, site: MARGIN_X+330, note: MARGIN_X+430 };
+    const TRUNC = { name: 24, dose: 12, site: 14, note: 20 };
 
-  document.getElementById("btn-export-pdf").addEventListener("click", async ()=>{
-    const btn = document.getElementById("btn-export-pdf");
-    const originalLabel = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Loading PDF tools…";
-    let jsPDF;
-    try{
-      jsPDF = await loadJsPDF();
-    }catch(err){
-      console.error(err);
-      toast(err.message || "Couldn't load PDF export");
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-      return;
+    const pages = [];
+    let ops = [];
+    let y = TOP_Y;
+
+    function addHeader(){
+      ops.push(`BT /F2 16 Tf 1 0 0 1 ${MARGIN_X} ${y} Tm (${pdfEscapeText("Peptides - Injection History")}) Tj ET`);
+      y -= 18;
+      ops.push(`0.4 g`);
+      ops.push(`BT /F1 9 Tf 1 0 0 1 ${MARGIN_X} ${y} Tm (${pdfEscapeText(filterName + " - generated " + generatedAt)}) Tj ET`);
+      ops.push(`0 g`);
+      y -= 20;
+      ops.push(`BT /F2 9 Tf 1 0 0 1 ${COLS.date} ${y} Tm (Date) Tj ET`);
+      ops.push(`BT /F2 9 Tf 1 0 0 1 ${COLS.name} ${y} Tm (Compound) Tj ET`);
+      ops.push(`BT /F2 9 Tf 1 0 0 1 ${COLS.dose} ${y} Tm (Dose) Tj ET`);
+      ops.push(`BT /F2 9 Tf 1 0 0 1 ${COLS.site} ${y} Tm (Site) Tj ET`);
+      ops.push(`BT /F2 9 Tf 1 0 0 1 ${COLS.note} ${y} Tm (Note) Tj ET`);
+      y -= 6;
+      ops.push(`0.7 G`);
+      ops.push(`${MARGIN_X} ${y} m ${PAGE_W-MARGIN_X} ${y} l S`);
+      ops.push(`0 G`);
+      y -= 14;
     }
-    btn.disabled = false;
-    btn.textContent = originalLabel;
 
-    const doc = new jsPDF({ unit: "pt", format: "letter" });
-    const marginX = 40;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const cols = { date: marginX, name: marginX+95, dose: marginX+255, site: marginX+330, note: marginX+430 };
-    let y = 50;
+    function newPage(){
+      if(ops.length) pages.push(ops);
+      ops = [];
+      y = TOP_Y;
+      addHeader();
+    }
 
+    newPage();
+
+    if(rowsData.length === 0){
+      ops.push(`BT /F1 9 Tf 1 0 0 1 ${MARGIN_X} ${y} Tm (No doses logged yet.) Tj ET`);
+    }
+
+    rowsData.forEach(r=>{
+      if(y < BOTTOM_Y) newPage();
+      ops.push(`BT /F1 8.5 Tf 1 0 0 1 ${COLS.date} ${y} Tm (${pdfEscapeText(r.date)}) Tj ET`);
+      ops.push(`BT /F1 8.5 Tf 1 0 0 1 ${COLS.name} ${y} Tm (${pdfEscapeText(pdfTruncate(r.name, TRUNC.name))}) Tj ET`);
+      ops.push(`BT /F1 8.5 Tf 1 0 0 1 ${COLS.dose} ${y} Tm (${pdfEscapeText(pdfTruncate(r.dose, TRUNC.dose))}) Tj ET`);
+      ops.push(`BT /F1 8.5 Tf 1 0 0 1 ${COLS.site} ${y} Tm (${pdfEscapeText(pdfTruncate(r.site, TRUNC.site))}) Tj ET`);
+      ops.push(`BT /F1 8.5 Tf 1 0 0 1 ${COLS.note} ${y} Tm (${pdfEscapeText(pdfTruncate(r.note, TRUNC.note))}) Tj ET`);
+      y -= LINE_H;
+    });
+
+    pages.push(ops);
+
+    const objects = {};
+    const numPages = pages.length;
+    const pageObjNums = [];
+    const contentObjNums = [];
+    let nextObjNum = 5;
+    for(let i=0;i<numPages;i++){
+      pageObjNums.push(nextObjNum++);
+      contentObjNums.push(nextObjNum++);
+    }
+
+    objects[1] = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
+    const kidsStr = pageObjNums.map(n=>`${n} 0 R`).join(" ");
+    objects[2] = `2 0 obj\n<< /Type /Pages /Kids [ ${kidsStr} ] /Count ${numPages} >>\nendobj\n`;
+    objects[3] = `3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
+    objects[4] = `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`;
+
+    for(let i=0;i<numPages;i++){
+      const pageNum = pageObjNums[i];
+      const contentNum = contentObjNums[i];
+      const streamBody = pages[i].join("\n");
+      const streamLen = streamBody.length;
+      objects[pageNum] = `${pageNum} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentNum} 0 R >>\nendobj\n`;
+      objects[contentNum] = `${contentNum} 0 obj\n<< /Length ${streamLen} >>\nstream\n${streamBody}\nendstream\nendobj\n`;
+    }
+
+    let pdf = "%PDF-1.4\n";
+    const offsets = {};
+    const maxObjNum = 4 + numPages*2;
+    for(let n=1;n<=maxObjNum;n++){
+      offsets[n] = pdf.length;
+      pdf += objects[n];
+    }
+
+    const xrefOffset = pdf.length;
+    let xref = `xref\n0 ${maxObjNum+1}\n0000000000 65535 f \n`;
+    for(let n=1;n<=maxObjNum;n++){
+      xref += String(offsets[n]).padStart(10,"0") + " 00000 n \n";
+    }
+    pdf += xref;
+    pdf += `trailer\n<< /Size ${maxObjNum+1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+    return pdf;
+  }
+
+  document.getElementById("btn-export-pdf").addEventListener("click", ()=>{
     const filterId = historyFilterEl.value || "all";
     const filterName = filterId === "all" ? "All compounds" : ((state.compounds.find(c=>c.id===filterId)||{}).name || "All compounds");
 
     let logs = state.logs.slice().sort((a,b)=> b.ts - a.ts);
     if(filterId !== "all") logs = logs.filter(l=> l.compoundId === filterId);
 
-    function drawHeader(){
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.text("Peptides — Injection History", marginX, y);
-      y += 18;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(110);
-      doc.text(`${filterName} - generated ${new Date().toLocaleString()}`, marginX, y);
-      y += 20;
-      doc.setTextColor(0);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.text("Date", cols.date, y);
-      doc.text("Compound", cols.name, y);
-      doc.text("Dose", cols.dose, y);
-      doc.text("Site", cols.site, y);
-      doc.text("Note", cols.note, y);
-      y += 6;
-      doc.setDrawColor(190);
-      doc.line(marginX, y, pageWidth - marginX, y);
-      y += 14;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
-    }
-
-    drawHeader();
-
-    if(logs.length === 0){
-      doc.text("No doses logged yet.", marginX, y);
-    }
-
-    logs.forEach(l=>{
-      if(y > pageHeight - 50){
-        doc.addPage();
-        y = 50;
-        drawHeader();
-      }
+    const rowsData = logs.map(l=>{
       const c = state.compounds.find(c=>c.id === l.compoundId);
-      const name = c ? c.name : "(deleted)";
-      const dateStr = new Date(l.ts).toLocaleString(undefined, { month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit" });
-      doc.text(dateStr, cols.date, y);
-      doc.text(truncateText(name, 24), cols.name, y);
-      doc.text(truncateText(l.dose || "—", 12), cols.dose, y);
-      doc.text(truncateText(l.site || "—", 14), cols.site, y);
-      doc.text(truncateText(l.note || "", 20), cols.note, y);
-      y += 15;
+      return {
+        date: new Date(l.ts).toLocaleString(undefined, { month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit" }),
+        name: c ? c.name : "(deleted compound)",
+        dose: l.dose || "—",
+        site: l.site || "—",
+        note: l.note || ""
+      };
     });
 
+    const pdfStr = buildHistoryPdfBytes(rowsData, filterName, new Date().toLocaleString());
+
+    // pdfStr is restricted to single-byte-safe characters, so a plain Blob
+    // (no external library) produces a valid, correctly-sized PDF file.
+    const blob = new Blob([pdfStr], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
     const stamp = new Date().toISOString().slice(0,10);
-    doc.save(`peptides-history-${stamp}.pdf`);
+    a.href = url;
+    a.download = `peptides-history-${stamp}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
     toast("PDF exported");
   });
 
