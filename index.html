@@ -6,6 +6,7 @@
 <title>Peptides — Injection Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
 <style>
   :root{
     --bg: #0F1719;
@@ -195,7 +196,7 @@
     flex-wrap:wrap; gap:10px;
   }
   .footer-note{ font-size:11.5px; color: var(--ink-faint); max-width:440px; line-height:1.5; }
-  .footer-actions{ display:flex; gap:8px; }
+  .footer-actions{ display:flex; gap:8px; flex-wrap:wrap; }
 
   /* ---------- modal ---------- */
   .overlay{
@@ -291,6 +292,7 @@
 <footer>
   <p class="footer-note">Tracking tool only — not medical guidance. Doses and schedules are whatever you enter; the app just does the math on when the next one's due. Data lives in this browser unless you connect GitHub sync (top-left pill) — use the buttons below for a manual local backup either way.</p>
   <div class="footer-actions">
+    <button class="btn small" id="btn-export-pdf">Export history to PDF</button>
     <button class="btn small" id="btn-export">Export backup</button>
     <button class="btn small" id="btn-import">Import backup</button>
     <input type="file" id="import-file" accept="application/json" style="display:none">
@@ -310,9 +312,10 @@
   const DAY_MS = 86400000;
 
   const FREQUENCIES = {
-    daily:    { label: "Daily",           days: 1  },
-    weekly:   { label: "Weekly",          days: 7  },
-    biweekly: { label: "Every 2 weeks",   days: 14 }
+    daily:    { label: "Daily",              days: 1  },
+    weekly:   { label: "Weekly",             days: 7  },
+    biweekly: { label: "Every 2 weeks",      days: 14 },
+    cycle5_2: { label: "5 days on, 2 off",   cycle: true, onDays: 5, cycleLength: 7 }
   };
 
   const DEFAULT_SITES = [
@@ -489,11 +492,35 @@
     return last;
   }
 
+  function startOfDay(ts){
+    const d = new Date(ts);
+    d.setHours(0,0,0,0);
+    return d.getTime();
+  }
+
+  function isOnDay(compound, dayStartTs){
+    const cfg = FREQUENCIES[compound.frequency];
+    const anchor = compound.cycleAnchor ? startOfDay(compound.cycleAnchor) : dayStartTs;
+    const diff = Math.round((dayStartTs - anchor) / DAY_MS);
+    const pos = ((diff % cfg.cycleLength) + cfg.cycleLength) % cfg.cycleLength;
+    return pos < cfg.onDays;
+  }
+
+  function nextDueForCycle(compound, last){
+    let d = startOfDay(last.ts) + DAY_MS;
+    for(let i=0;i<14;i++){
+      if(isOnDay(compound, d)) return d;
+      d += DAY_MS;
+    }
+    return d;
+  }
+
   function nextDueFor(compound){
     const last = lastLogFor(compound.id);
     if(!last) return null;
-    const intervalDays = FREQUENCIES[compound.frequency].days;
-    return last.ts + intervalDays * DAY_MS;
+    const cfg = FREQUENCIES[compound.frequency];
+    if(cfg.cycle) return nextDueForCycle(compound, last);
+    return last.ts + cfg.days * DAY_MS;
   }
 
   function statusFor(compound){
@@ -730,6 +757,12 @@
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  function toDateInputValue(ts){
+    const d = new Date(ts);
+    const pad = n => String(n).padStart(2,"0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+
   // ---------- add / edit compound modal ----------
   function openEditModal(compoundId){
     const isNew = !compoundId;
@@ -762,6 +795,11 @@
         <label>Frequency</label>
         <div class="chip-row" id="e-freq-row">${freqChips}</div>
       </div>
+      <div class="field" id="e-anchor-wrap" style="display:${c.frequency==='cycle5_2' ? 'block':'none'};">
+        <label for="e-anchor">Cycle start (first "on" day)</label>
+        <input type="date" id="e-anchor" value="${c.cycleAnchor ? toDateInputValue(c.cycleAnchor) : toDateInputValue(Date.now())}">
+        <div class="hint">5 on-days from this date, then 2 off, repeating.</div>
+      </div>
       <div class="field">
         <label for="e-sites">Injection sites (rotation, comma-separated)</label>
         <input type="text" id="e-sites" value="${escapeHtml((c.sites||[]).join(", "))}">
@@ -783,6 +821,7 @@
       selectedFreq = btn.dataset.freq;
       document.querySelectorAll("#e-freq-row .chip").forEach(ch=>ch.classList.remove("active"));
       btn.classList.add("active");
+      document.getElementById("e-anchor-wrap").style.display = selectedFreq === "cycle5_2" ? "block" : "none";
     });
 
     document.getElementById("e-cancel").addEventListener("click", closeModal);
@@ -805,6 +844,10 @@
       c.doseAmount = document.getElementById("e-dose").value.trim();
       c.doseUnit = document.getElementById("e-unit").value.trim();
       c.frequency = selectedFreq;
+      if(selectedFreq === "cycle5_2"){
+        const anchorVal = document.getElementById("e-anchor").value;
+        c.cycleAnchor = anchorVal ? new Date(anchorVal + "T00:00:00").getTime() : startOfDay(Date.now());
+      }
       c.sites = document.getElementById("e-sites").value.split(",").map(s=>s.trim()).filter(Boolean);
       if(c.sites.length === 0) c.sites = DEFAULT_SITES.slice(0,2);
       c.siteIndex = c.siteIndex || 0;
@@ -943,6 +986,85 @@
 
   document.getElementById("btn-add-compound").addEventListener("click", ()=> openEditModal(null));
   document.getElementById("btn-github").addEventListener("click", openGithubSettingsModal);
+
+  // ---------- export history to PDF ----------
+  function truncateText(str, n){
+    str = String(str == null ? "" : str);
+    return str.length > n ? str.slice(0, n-1) + "…" : str;
+  }
+
+  document.getElementById("btn-export-pdf").addEventListener("click", ()=>{
+    if(!window.jspdf || !window.jspdf.jsPDF){
+      toast("PDF export needs an internet connection (loads once)");
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "letter" });
+    const marginX = 40;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const cols = { date: marginX, name: marginX+95, dose: marginX+255, site: marginX+330, note: marginX+430 };
+    let y = 50;
+
+    const filterId = historyFilterEl.value || "all";
+    const filterName = filterId === "all" ? "All compounds" : ((state.compounds.find(c=>c.id===filterId)||{}).name || "All compounds");
+
+    let logs = state.logs.slice().sort((a,b)=> b.ts - a.ts);
+    if(filterId !== "all") logs = logs.filter(l=> l.compoundId === filterId);
+
+    function drawHeader(){
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("Peptides — Injection History", marginX, y);
+      y += 18;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(110);
+      doc.text(`${filterName} - generated ${new Date().toLocaleString()}`, marginX, y);
+      y += 20;
+      doc.setTextColor(0);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.text("Date", cols.date, y);
+      doc.text("Compound", cols.name, y);
+      doc.text("Dose", cols.dose, y);
+      doc.text("Site", cols.site, y);
+      doc.text("Note", cols.note, y);
+      y += 6;
+      doc.setDrawColor(190);
+      doc.line(marginX, y, pageWidth - marginX, y);
+      y += 14;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+    }
+
+    drawHeader();
+
+    if(logs.length === 0){
+      doc.text("No doses logged yet.", marginX, y);
+    }
+
+    logs.forEach(l=>{
+      if(y > pageHeight - 50){
+        doc.addPage();
+        y = 50;
+        drawHeader();
+      }
+      const c = state.compounds.find(c=>c.id === l.compoundId);
+      const name = c ? c.name : "(deleted)";
+      const dateStr = new Date(l.ts).toLocaleString(undefined, { month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit" });
+      doc.text(dateStr, cols.date, y);
+      doc.text(truncateText(name, 24), cols.name, y);
+      doc.text(truncateText(l.dose || "—", 12), cols.dose, y);
+      doc.text(truncateText(l.site || "—", 14), cols.site, y);
+      doc.text(truncateText(l.note || "", 20), cols.note, y);
+      y += 15;
+    });
+
+    const stamp = new Date().toISOString().slice(0,10);
+    doc.save(`peptides-history-${stamp}.pdf`);
+    toast("PDF exported");
+  });
 
   // ---------- export / import ----------
   document.getElementById("btn-export").addEventListener("click", ()=>{

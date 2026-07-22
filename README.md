@@ -7,10 +7,13 @@ everything is stored in your browser's local storage on whatever device you use 
 ## What it does
 
 - Tracks any number of compounds, each with its own dose, frequency, and injection-site rotation.
+- Frequencies: daily, weekly, every 2 weeks, or a 5-days-on/2-days-off cycle (set a cycle start
+  date and it repeats automatically).
 - Shows an at-a-glance status per compound: overdue, due today, due tomorrow, or on track,
   calculated from your last logged dose.
 - Suggests the next injection site in rotation each time you log a dose.
-- Keeps a full history log, filterable by compound.
+- Keeps a full history log, filterable by compound, exportable as a PDF (works on mobile too —
+  triggers a normal file download/share sheet).
 - Export/import a JSON backup — useful before clearing browser data or moving to a new device/browser.
 
 ## Hosting it on GitHub Pages
