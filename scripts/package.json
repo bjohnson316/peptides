@@ -1,0 +1,8 @@
+{
+  "name": "peptides-dose-reminder",
+  "private": true,
+  "description": "Scheduled job that emails a due-dose reminder using data synced from the Peptides tracker.",
+  "dependencies": {
+    "nodemailer": "^9.0.3"
+  }
+}
