@@ -15,6 +15,10 @@ everything is stored in your browser's local storage on whatever device you use 
 - Keeps a full history log, filterable by compound, exportable as a real PDF file with no
   external library and no internet dependency — it downloads directly, the same as the JSON
   backup, and works the same on desktop and mobile.
+- Logging a dose pre-fills the compound's usual dose automatically — just adjust it if this one's
+  different.
+- Optional 6pm email reminder on any day a dose is due, free via your own email account (needs
+  GitHub sync — see below).
 - Export/import a JSON backup — useful before clearing browser data or moving to a new device/browser.
 
 ## Hosting it on GitHub Pages
@@ -56,6 +60,52 @@ GitHub any time you want to cut access off.
 If you'd rather not use GitHub sync at all, the app works the same as before — just remember to
 use **Export backup** periodically, especially before switching browsers or devices, and **Import
 backup** to restore or move it.
+
+## Email reminders (optional)
+
+A static site can't send anything on its own at 6pm — there's no server to run that clock. This
+adds a small scheduled job (GitHub Actions, free) that checks your data and emails you if
+something's due, using your own email account's SMTP — no paid service required.
+
+**Requirements:**
+- GitHub sync must be set up (above) — the reminder job reads the same private Gist your browser
+  syncs to, since that's the only copy of your data a server can reach.
+- An email account you can send through via SMTP with an app password (Gmail, Outlook, etc. all
+  support this for free).
+
+**Setup (using Gmail as the example):**
+1. Add the `.github/workflows/dose-reminder.yml` and `scripts/` folder (with `send-reminder.js`,
+   `package.json`, `package-lock.json`) from this download to your repo, in those exact locations.
+2. In your Google Account → **Security**, turn on 2-Step Verification if it isn't already on,
+   then go to **Security → App passwords** and create one (name it anything, e.g. "peptides").
+   Copy the 16-character password it gives you.
+3. In your repo, go to **Settings → Secrets and variables → Actions → New repository secret**
+   and add each of these:
+   - `GIST_ID` — the Gist ID from the app's GitHub sync settings
+   - `GIST_TOKEN` — a personal access token with `gist` scope (the same one the app uses is fine)
+   - `SMTP_HOST` — `smtp.gmail.com`
+   - `SMTP_PORT` — `465`
+   - `SMTP_USER` — your Gmail address
+   - `SMTP_PASS` — the 16-character app password from step 2 (not your regular Gmail password)
+   - `EMAIL_TO` — the address you want reminders sent to (can be the same Gmail address)
+4. That's it. It runs automatically at 6pm Central and emails you a summary of anything due or
+   overdue that day — nothing sends if nothing's due.
+
+Using a different provider (Outlook, Yahoo, a work email, etc.) works the same way — just use
+that provider's SMTP host/port and an app password from their security settings instead of steps
+2–3 above.
+
+**Testing it:** go to your repo's **Actions** tab → **Dose Reminder** → **Run workflow**, check
+the "force" box, and run it. That sends a test email immediately regardless of the time or
+whether anything's actually due, so you can confirm it's wired up correctly without waiting for
+6pm.
+
+**Notes:** the schedule is set for `America/Chicago`; edit `REMINDER_TIMEZONE` and `REMINDER_HOUR`
+in the workflow file if that's not your timezone. It runs on two cron triggers to handle daylight
+saving automatically — the script checks the real local hour and only ever sends once a day.
+GitHub's scheduled jobs can run a few minutes late during high load, so treat 6pm as approximate.
+saving automatically — the script checks the real local hour and only ever sends once a day.
+GitHub's scheduled jobs can run a few minutes late during high load, so treat 6pm as approximate.
 
 This is a personal tracking tool, not medical guidance — it just does the date math on when your
 next dose is due based on what you tell it.
