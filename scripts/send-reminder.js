@@ -29,16 +29,21 @@ const FREQUENCIES = {
   cycle5_2: { cycle: true, onDays: 5, cycleLength: 7 }
 };
 
-function startOfDay(ts) {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+// Day-boundary math must use the reminder's configured timezone, NOT the
+// server's local time — GitHub Actions runners default to UTC, so a naive
+// setHours(0,0,0,0) would compute "today" using UTC's calendar date instead
+// of the calendar date where you actually are, and misjudge what's due
+// whenever the two dates disagree (i.e. most of the day).
+function localDayKey(ts, timeZone) {
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  const [y, m, d] = fmt.format(new Date(ts)).split("-").map(Number);
+  return Date.UTC(y, m - 1, d); // a stable, comparable "calendar day" key — not a real moment in time
 }
 
-function isOnDay(compound, dayStartTs) {
+function isOnDay(compound, dayKey) {
   const cfg = FREQUENCIES[compound.frequency];
-  const anchor = compound.cycleAnchor ? startOfDay(compound.cycleAnchor) : dayStartTs;
-  const diff = Math.round((dayStartTs - anchor) / DAY_MS);
+  const anchor = compound.cycleAnchor ? localDayKey(compound.cycleAnchor, TIMEZONE) : dayKey;
+  const diff = Math.round((dayKey - anchor) / DAY_MS);
   const pos = ((diff % cfg.cycleLength) + cfg.cycleLength) % cfg.cycleLength;
   return pos < cfg.onDays;
 }
@@ -53,7 +58,7 @@ function lastLogFor(logs, compoundId) {
 }
 
 function nextDueForCycle(compound, last) {
-  let d = startOfDay(last.ts) + DAY_MS;
+  let d = localDayKey(last.ts, TIMEZONE) + DAY_MS;
   for (let i = 0; i < 14; i++) {
     if (isOnDay(compound, d)) return d;
     d += DAY_MS;
@@ -66,7 +71,9 @@ function nextDueFor(compound, logs) {
   if (!last) return null; // never logged yet — nothing to remind about
   const cfg = FREQUENCIES[compound.frequency];
   if (cfg.cycle) return nextDueForCycle(compound, last);
-  return last.ts + cfg.days * DAY_MS;
+  // interval types: advance by N calendar days in the reminder's timezone,
+  // not N*24h of raw elapsed time (which can drift a day near DST changes)
+  return localDayKey(last.ts, TIMEZONE) + cfg.days * DAY_MS;
 }
 
 function currentLocalHour() {
@@ -98,12 +105,12 @@ async function main() {
   const content = gist.files[filenames[0]].content;
   const data = JSON.parse(content);
 
-  const todayStart = startOfDay(Date.now());
+  const todayStart = localDayKey(Date.now(), TIMEZONE);
   const due = [];
   for (const c of (data.compounds || [])) {
     const dueTs = nextDueFor(c, data.logs || []);
     if (dueTs === null) continue;
-    if (startOfDay(dueTs) <= todayStart) {
+    if (dueTs <= todayStart) {
       due.push(c.name);
     }
   }
