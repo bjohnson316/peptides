@@ -39,4 +39,3 @@ jobs:
           REMINDER_TIMEZONE: America/Chicago
           REMINDER_HOUR: '18'
           FORCE: ${{ github.event.inputs.force }}
-#
