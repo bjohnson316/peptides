@@ -7,14 +7,18 @@ everything is stored in your browser's local storage on whatever device you use 
 ## What it does
 
 - Tracks any number of compounds, each with its own dose, frequency, and injection-site rotation.
-- Frequencies: daily, weekly, every 2 weeks, or a 5-days-on/2-days-off cycle (set a cycle start
-  date and it repeats automatically).
+- Frequencies: daily, weekly, every 2 weeks, a 5-days-on/2-days-off cycle (set a cycle start date
+  and it repeats automatically), or a custom "every N days" interval you set yourself.
 - Shows an at-a-glance status per compound: overdue, due today, due tomorrow, or on track,
   calculated from your last logged dose.
 - Suggests the next injection site in rotation each time you log a dose.
 - Keeps a full history log, filterable by compound, exportable as a real PDF file with no
   external library and no internet dependency — it downloads directly, the same as the JSON
   backup, and works the same on desktop and mobile.
+- History entries can be selected and archived to tidy up the list — select individually, or use
+  "Select matching" to grab everything in a given day, week, month, or year at once. Archived entries
+  are hidden from the main list (and from PDF exports) but never deleted — a "Show archived"
+  toggle brings them back into view, and anything archived can be unarchived just as easily.
 - Logging a dose pre-fills the compound's usual dose automatically — just adjust it if this one's
   different.
 - Optional 6pm email reminder on any day a dose is due, free via your own email account (needs

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Peptide Tracker</title>
+<title>Peptides — Injection Tracker</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230F1719'/%3E%3Cg transform='rotate(45 12 12)' fill='none' stroke='%2355D9C4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='3' x2='12' y2='6'/%3E%3Crect x='8.5' y='6' width='7' height='9' rx='1.3'/%3E%3Cline x1='6.5' y1='15' x2='17.5' y2='15'/%3E%3Cline x1='12' y1='15' x2='12' y2='19.5'/%3E%3Cline x1='9.3' y1='19.5' x2='14.7' y2='19.5'/%3E%3Cline x1='10' y1='9' x2='14' y2='9'/%3E%3Cline x1='10' y1='11.7' x2='14' y2='11.7'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0F1719">
@@ -266,9 +266,9 @@
 <div class="wrap">
   <header class="top">
     <div>
-      <p class="brand-eyebrow"></p>
-      <h1 class="title">Peptide Tracker</h1>
-      <p class="subline"></p>
+      <p class="brand-eyebrow">Peptides</p>
+      <h1 class="title">Injection Tracker</h1>
+      <p class="subline">Local, private, on this device.</p>
       <button class="sync-pill" id="btn-github" type="button">
         <span class="dot"></span><span id="sync-pill-label">Local only — click to sync</span>
       </button>
@@ -294,16 +294,18 @@
   </div>
   <div class="history-controls">
     <select id="history-filter"><option value="all">All compounds</option></select>
-    <button class="btn small" id="btn-select-mode">Select to Archive</button>
+    <button class="btn small" id="btn-select-mode">Select</button>
     <label class="archived-toggle"><input type="checkbox" id="show-archived-toggle"> Show archived</label>
   </div>
   <div class="select-bar" id="select-bar" style="display:none;">
     <select id="select-by-unit">
       <option value="day">Day</option>
+      <option value="week">Week</option>
       <option value="month">Month</option>
       <option value="year">Year</option>
     </select>
     <input type="date" id="select-by-day">
+    <input type="week" id="select-by-week" style="display:none;">
     <input type="month" id="select-by-month" style="display:none;">
     <input type="number" id="select-by-year" style="display:none;" placeholder="2026" min="2000" max="2100">
     <button class="btn small" id="btn-select-matching">Select matching</button>
@@ -315,7 +317,7 @@
 </div>
 
 <footer>
-  <p class="footer-note"></p>
+  <p class="footer-note">Tracking tool only — not medical guidance. Doses and schedules are whatever you enter; the app just does the math on when the next one's due. Data lives in this browser unless you connect GitHub sync (top-left pill) — use the buttons below for a manual local backup either way.</p>
   <div class="footer-actions">
     <label class="archived-toggle"><input type="checkbox" id="export-include-archived"> Include archived</label>
     <button class="btn small" id="btn-export-pdf">Export history to PDF</button>
@@ -773,16 +775,28 @@
 
   const selectByUnitEl = document.getElementById("select-by-unit");
   const selectByDayEl = document.getElementById("select-by-day");
+  const selectByWeekEl = document.getElementById("select-by-week");
   const selectByMonthEl = document.getElementById("select-by-month");
   const selectByYearEl = document.getElementById("select-by-year");
   function syncSelectByInputs(){
     const unit = selectByUnitEl.value;
     selectByDayEl.style.display = unit === "day" ? "block" : "none";
+    selectByWeekEl.style.display = unit === "week" ? "block" : "none";
     selectByMonthEl.style.display = unit === "month" ? "block" : "none";
     selectByYearEl.style.display = unit === "year" ? "block" : "none";
   }
   selectByUnitEl.addEventListener("change", syncSelectByInputs);
   syncSelectByInputs();
+
+  // ISO-8601 week: Monday-start, week 1 is the week containing Jan 4th
+  function isoWeekToMonday(year, week){
+    const jan4 = new Date(year, 0, 4);
+    const jan4Day = (jan4.getDay() + 6) % 7; // Monday=0..Sunday=6
+    const monday = new Date(jan4);
+    monday.setDate(jan4.getDate() - jan4Day + (week - 1) * 7);
+    monday.setHours(0,0,0,0);
+    return monday;
+  }
 
   function rangeForSelection(){
     const unit = selectByUnitEl.value;
@@ -791,6 +805,16 @@
       if(!val) return null;
       const start = new Date(val + "T00:00:00").getTime();
       return { start, end: start + DAY_MS };
+    }
+    if(unit === "week"){
+      const val = selectByWeekEl.value; // "YYYY-Www"
+      if(!val || !val.includes("-W")) return null;
+      const [yearStr, weekStr] = val.split("-W");
+      const year = parseInt(yearStr, 10);
+      const week = parseInt(weekStr, 10);
+      if(!year || !week) return null;
+      const start = isoWeekToMonday(year, week).getTime();
+      return { start, end: start + 7 * DAY_MS };
     }
     if(unit === "month"){
       const val = selectByMonthEl.value; // "YYYY-MM"
