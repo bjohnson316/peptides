@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Peptide Tracker</title>
+<title>Peptides — Injection Tracker</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230F1719'/%3E%3Cg transform='rotate(45 12 12)' fill='none' stroke='%2355D9C4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='3' x2='12' y2='6'/%3E%3Crect x='8.5' y='6' width='7' height='9' rx='1.3'/%3E%3Cline x1='6.5' y1='15' x2='17.5' y2='15'/%3E%3Cline x1='12' y1='15' x2='12' y2='19.5'/%3E%3Cline x1='9.3' y1='19.5' x2='14.7' y2='19.5'/%3E%3Cline x1='10' y1='9' x2='14' y2='9'/%3E%3Cline x1='10' y1='11.7' x2='14' y2='11.7'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0F1719">
@@ -175,7 +175,10 @@
   .add-row:hover{ color: var(--teal); border-color: var(--teal-dim); }
 
   /* ---------- history ---------- */
-  .history-controls{ display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .history-controls{ display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center; }
+  .archived-toggle{ display:flex; align-items:center; gap:6px; font-size:12.5px; color: var(--ink-dim); }
+  .select-bar{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  .log-entry-check{ display:flex; align-items:flex-start; padding-top:2px; }
   select, input[type=text], input[type=number], input[type=datetime-local]{
     background: var(--surface-2); border:1px solid var(--line); color: var(--ink);
     border-radius:7px; padding:8px 10px; font-size:13px; font-family:inherit;
@@ -263,9 +266,9 @@
 <div class="wrap">
   <header class="top">
     <div>
-      <p class="brand-eyebrow"></p>
-      <h1 class="title">Peptide Tracker</h1>
-      <p class="subline"></p>
+      <p class="brand-eyebrow">Peptides</p>
+      <h1 class="title">Injection Tracker</h1>
+      <p class="subline">Local, private, on this device.</p>
       <button class="sync-pill" id="btn-github" type="button">
         <span class="dot"></span><span id="sync-pill-label">Local only — click to sync</span>
       </button>
@@ -291,6 +294,22 @@
   </div>
   <div class="history-controls">
     <select id="history-filter"><option value="all">All compounds</option></select>
+    <button class="btn small" id="btn-select-mode">Select</button>
+    <label class="archived-toggle"><input type="checkbox" id="show-archived-toggle"> Show archived</label>
+  </div>
+  <div class="select-bar" id="select-bar" style="display:none;">
+    <select id="select-by-unit">
+      <option value="day">Day</option>
+      <option value="month">Month</option>
+      <option value="year">Year</option>
+    </select>
+    <input type="date" id="select-by-day">
+    <input type="month" id="select-by-month" style="display:none;">
+    <input type="number" id="select-by-year" style="display:none;" placeholder="2026" min="2000" max="2100">
+    <button class="btn small" id="btn-select-matching">Select matching</button>
+    <span class="hint" id="selected-count" style="align-self:center;"></span>
+    <button class="btn primary small" id="btn-archive-selected" style="display:none;">Archive selected</button>
+    <button class="btn ghost small" id="btn-cancel-select">Cancel</button>
   </div>
   <div class="log-list" id="log-list"></div>
 </div>
@@ -298,6 +317,7 @@
 <footer>
   <p class="footer-note">Tracking tool only — not medical guidance. Doses and schedules are whatever you enter; the app just does the math on when the next one's due. Data lives in this browser unless you connect GitHub sync (top-left pill) — use the buttons below for a manual local backup either way.</p>
   <div class="footer-actions">
+    <label class="archived-toggle"><input type="checkbox" id="export-include-archived"> Include archived</label>
     <button class="btn small" id="btn-export-pdf">Export history to PDF</button>
     <button class="btn small" id="btn-export">Export backup</button>
     <button class="btn small" id="btn-import">Import backup</button>
@@ -321,8 +341,17 @@
     daily:    { label: "Daily",              days: 1  },
     weekly:   { label: "Weekly",             days: 7  },
     biweekly: { label: "Every 2 weeks",      days: 14 },
-    cycle5_2: { label: "5 days on, 2 off",   cycle: true, onDays: 5, cycleLength: 7 }
+    cycle5_2: { label: "5 days on, 2 off",   cycle: true, onDays: 5, cycleLength: 7 },
+    custom:   { label: "Custom",             custom: true }
   };
+
+  function frequencyLabel(compound){
+    if(compound.frequency === "custom"){
+      const n = compound.customDays || 1;
+      return `Every ${n} day${n===1?"":"s"}`;
+    }
+    return FREQUENCIES[compound.frequency].label;
+  }
 
   const DEFAULT_SITES = [
     "Left abdomen", "Right abdomen", "Left thigh", "Right thigh",
@@ -526,6 +555,7 @@
     if(!last) return null;
     const cfg = FREQUENCIES[compound.frequency];
     if(cfg.cycle) return nextDueForCycle(compound, last);
+    if(cfg.custom) return last.ts + (compound.customDays || 1) * DAY_MS;
     return last.ts + cfg.days * DAY_MS;
   }
 
@@ -601,7 +631,7 @@
       const s = statusFor(c);
       const ledClass = s.key === "overdue" ? "red" : s.key === "today" ? "amber pulse" : s.key === "new" ? "grey" : "";
       const last = lastLogFor(c.id);
-      const freqLabel = FREQUENCIES[c.frequency].label;
+      const freqLabel = frequencyLabel(c);
       const doseStr = c.doseAmount ? `${c.doseAmount}${c.doseUnit||""}` : null;
 
       const card = document.createElement("div");
@@ -641,37 +671,171 @@
     if(historyFilterEl.value !== current) historyFilterEl.value = "all";
   }
 
-  function renderHistory(){
+  let selectMode = false;
+  let selectedLogIds = new Set();
+  let showArchived = false;
+
+  function currentHistoryLogs(){
     const filter = historyFilterEl.value || "all";
-    let logs = state.logs.slice().sort((a,b)=> b.ts - a.ts);
-    if(filter !== "all") logs = logs.filter(l=> l.compoundId === filter);
+    let logs = state.logs.filter(l => showArchived ? !!l.archived : !l.archived);
+    if(filter !== "all") logs = logs.filter(l => l.compoundId === filter);
+    return logs.sort((a,b)=> b.ts - a.ts);
+  }
+
+  function renderHistory(){
+    const logs = currentHistoryLogs();
     logListEl.innerHTML = "";
     if(logs.length === 0){
-      logListEl.innerHTML = `<div class="empty">No doses logged yet.</div>`;
+      logListEl.innerHTML = `<div class="empty">${showArchived ? "No archived entries." : "No doses logged yet."}</div>`;
+      updateSelectionUI();
       return;
     }
     logs.slice(0, 200).forEach(l=>{
       const c = state.compounds.find(c=>c.id === l.compoundId);
       const name = c ? c.name : "(deleted compound)";
-      const entry = document.createElement("div");
-      entry.className = "log-entry";
-      entry.style.cursor = "pointer";
-      entry.title = "Tap to edit this entry";
-      entry.innerHTML = `
-        <div class="ts">${fmtTimeShort(l.ts)}</div>
-        <div class="what"><b>${escapeHtml(name)}</b>${l.dose ? " — " + escapeHtml(l.dose) : ""}${l.note ? `<br><span style="font-size:11.5px;">${escapeHtml(l.note)}</span>` : ""}</div>
-        <div class="site">${escapeHtml(l.site || "")}</div>
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.gap = "8px";
+      row.style.alignItems = "flex-start";
+
+      const checked = selectedLogIds.has(l.id);
+      row.innerHTML = `
+        ${selectMode ? `<div class="log-entry-check"><input type="checkbox" data-check="${l.id}" ${checked?"checked":""}></div>` : ""}
+        <div class="log-entry" style="flex:1; cursor:pointer;" data-row="${l.id}" title="${selectMode ? "Tap to select" : "Tap to edit this entry"}">
+          <div class="ts">${fmtTimeShort(l.ts)}</div>
+          <div class="what"><b>${escapeHtml(name)}</b>${l.dose ? " — " + escapeHtml(l.dose) : ""}${l.note ? `<br><span style="font-size:11.5px;">${escapeHtml(l.note)}</span>` : ""}</div>
+          <div class="site">${escapeHtml(l.site || "")}</div>
+        </div>
       `;
-      entry.addEventListener("click", ()=> openEditLogModal(l.id));
-      logListEl.appendChild(entry);
+      logListEl.appendChild(row);
     });
+
+    logListEl.querySelectorAll("[data-row]").forEach(el=>{
+      el.addEventListener("click", ()=>{
+        const id = el.dataset.row;
+        if(selectMode) toggleLogSelected(id);
+        else openEditLogModal(id);
+      });
+    });
+    logListEl.querySelectorAll("[data-check]").forEach(el=>{
+      el.addEventListener("click", (e)=>{
+        e.stopPropagation();
+        toggleLogSelected(el.dataset.check);
+      });
+    });
+
+    updateSelectionUI();
+  }
+
+  function toggleLogSelected(id){
+    if(selectedLogIds.has(id)) selectedLogIds.delete(id);
+    else selectedLogIds.add(id);
+    renderHistory();
+  }
+
+  function updateSelectionUI(){
+    const countEl = document.getElementById("selected-count");
+    const archiveBtn = document.getElementById("btn-archive-selected");
+    const n = selectedLogIds.size;
+    countEl.textContent = n > 0 ? `${n} selected` : "";
+    archiveBtn.style.display = n > 0 ? "inline-flex" : "none";
+    archiveBtn.textContent = showArchived ? `Unarchive selected (${n})` : `Archive selected (${n})`;
   }
 
   function escapeHtml(str){
     return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   }
 
-  historyFilterEl.addEventListener("change", renderHistory);
+  historyFilterEl.addEventListener("change", ()=>{ selectedLogIds.clear(); renderHistory(); });
+
+  document.getElementById("show-archived-toggle").addEventListener("change", (e)=>{
+    showArchived = e.target.checked;
+    selectedLogIds.clear();
+    renderHistory();
+  });
+
+  const selectBar = document.getElementById("select-bar");
+  const btnSelectMode = document.getElementById("btn-select-mode");
+  btnSelectMode.addEventListener("click", ()=>{
+    selectMode = true;
+    selectedLogIds.clear();
+    btnSelectMode.style.display = "none";
+    selectBar.style.display = "flex";
+    renderHistory();
+  });
+  document.getElementById("btn-cancel-select").addEventListener("click", ()=>{
+    selectMode = false;
+    selectedLogIds.clear();
+    btnSelectMode.style.display = "inline-flex";
+    selectBar.style.display = "none";
+    renderHistory();
+  });
+
+  const selectByUnitEl = document.getElementById("select-by-unit");
+  const selectByDayEl = document.getElementById("select-by-day");
+  const selectByMonthEl = document.getElementById("select-by-month");
+  const selectByYearEl = document.getElementById("select-by-year");
+  function syncSelectByInputs(){
+    const unit = selectByUnitEl.value;
+    selectByDayEl.style.display = unit === "day" ? "block" : "none";
+    selectByMonthEl.style.display = unit === "month" ? "block" : "none";
+    selectByYearEl.style.display = unit === "year" ? "block" : "none";
+  }
+  selectByUnitEl.addEventListener("change", syncSelectByInputs);
+  syncSelectByInputs();
+
+  function rangeForSelection(){
+    const unit = selectByUnitEl.value;
+    if(unit === "day"){
+      const val = selectByDayEl.value;
+      if(!val) return null;
+      const start = new Date(val + "T00:00:00").getTime();
+      return { start, end: start + DAY_MS };
+    }
+    if(unit === "month"){
+      const val = selectByMonthEl.value; // "YYYY-MM"
+      if(!val) return null;
+      const [y,m] = val.split("-").map(Number);
+      return { start: new Date(y, m-1, 1).getTime(), end: new Date(y, m, 1).getTime() };
+    }
+    if(unit === "year"){
+      const y = parseInt(selectByYearEl.value, 10);
+      if(!y) return null;
+      return { start: new Date(y, 0, 1).getTime(), end: new Date(y+1, 0, 1).getTime() };
+    }
+    return null;
+  }
+
+  document.getElementById("btn-select-matching").addEventListener("click", ()=>{
+    const range = rangeForSelection();
+    if(!range){ toast("Pick a date first"); return; }
+    const filter = historyFilterEl.value || "all";
+    let added = 0;
+    state.logs.forEach(l=>{
+      const isArchivedMatch = showArchived ? !!l.archived : !l.archived;
+      if(!isArchivedMatch) return;
+      if(filter !== "all" && l.compoundId !== filter) return;
+      if(l.ts >= range.start && l.ts < range.end && !selectedLogIds.has(l.id)){
+        selectedLogIds.add(l.id);
+        added++;
+      }
+    });
+    renderHistory();
+    toast(added > 0 ? `${added} entr${added===1?"y":"ies"} selected` : "No entries in that range");
+  });
+
+  document.getElementById("btn-archive-selected").addEventListener("click", ()=>{
+    if(selectedLogIds.size === 0) return;
+    const willArchive = !showArchived;
+    state.logs.forEach(l=>{
+      if(selectedLogIds.has(l.id)) l.archived = willArchive;
+    });
+    const n = selectedLogIds.size;
+    selectedLogIds.clear();
+    render();
+    persist();
+    toast(willArchive ? `${n} entr${n===1?"y":"ies"} archived` : `${n} entr${n===1?"y":"ies"} unarchived`);
+  });
 
   // ---------- toast ----------
   function toast(msg){
@@ -747,7 +911,7 @@
       const dose = document.getElementById("f-dose").value.trim();
       const note = document.getElementById("f-note").value.trim();
 
-      state.logs.push({ id: uid(), compoundId: c.id, ts, site, dose, note });
+      state.logs.push({ id: uid(), compoundId: c.id, ts, site, dose, note, archived: false });
 
       if(c.sites && c.sites.length){
         const idx = c.sites.indexOf(site);
@@ -796,7 +960,10 @@
         <input type="text" id="el-note" value="${escapeHtml(l.note || "")}">
       </div>
       <div class="modal-actions">
-        <div><button class="btn danger small" id="el-delete" type="button">Delete entry</button></div>
+        <div>
+          <button class="btn danger small" id="el-delete" type="button">Delete entry</button>
+          <button class="btn small" id="el-archive-toggle" type="button">${l.archived ? "Unarchive" : "Archive"}</button>
+        </div>
         <div class="right">
           <button class="btn ghost" id="el-cancel" type="button">Cancel</button>
           <button class="btn primary" id="el-save" type="button">Save</button>
@@ -808,6 +975,14 @@
       document.getElementById("el-custom-site-wrap").style.display = e.target.value === "__custom" ? "block" : "none";
     });
     document.getElementById("el-cancel").addEventListener("click", closeModal);
+
+    document.getElementById("el-archive-toggle").addEventListener("click", ()=>{
+      l.archived = !l.archived;
+      closeModal();
+      render();
+      persist();
+      toast(l.archived ? "Entry archived" : "Entry unarchived");
+    });
 
     document.getElementById("el-delete").addEventListener("click", ()=>{
       if(!confirm("Delete this history entry? This can't be undone.")) return;
@@ -884,6 +1059,11 @@
         <input type="date" id="e-anchor" value="${c.cycleAnchor ? toDateInputValue(c.cycleAnchor) : toDateInputValue(Date.now())}">
         <div class="hint">5 on-days from this date, then 2 off, repeating.</div>
       </div>
+      <div class="field" id="e-custom-wrap" style="display:${c.frequency==='custom' ? 'block':'none'};">
+        <label for="e-custom-days">Every how many days</label>
+        <input type="number" id="e-custom-days" min="1" step="1" value="${c.customDays || 3}">
+        <div class="hint">Next dose is due this many days after the last one you logged.</div>
+      </div>
       <div class="field">
         <label for="e-sites">Injection sites (rotation, comma-separated)</label>
         <input type="text" id="e-sites" value="${escapeHtml((c.sites||[]).join(", "))}">
@@ -906,6 +1086,7 @@
       document.querySelectorAll("#e-freq-row .chip").forEach(ch=>ch.classList.remove("active"));
       btn.classList.add("active");
       document.getElementById("e-anchor-wrap").style.display = selectedFreq === "cycle5_2" ? "block" : "none";
+      document.getElementById("e-custom-wrap").style.display = selectedFreq === "custom" ? "block" : "none";
     });
 
     document.getElementById("e-cancel").addEventListener("click", closeModal);
@@ -931,6 +1112,10 @@
       if(selectedFreq === "cycle5_2"){
         const anchorVal = document.getElementById("e-anchor").value;
         c.cycleAnchor = anchorVal ? new Date(anchorVal + "T00:00:00").getTime() : startOfDay(Date.now());
+      }
+      if(selectedFreq === "custom"){
+        const n = parseInt(document.getElementById("e-custom-days").value, 10);
+        c.customDays = (Number.isFinite(n) && n >= 1) ? n : 3;
       }
       c.sites = document.getElementById("e-sites").value.split(",").map(s=>s.trim()).filter(Boolean);
       if(c.sites.length === 0) c.sites = DEFAULT_SITES.slice(0,2);
@@ -1187,9 +1372,11 @@
   document.getElementById("btn-export-pdf").addEventListener("click", ()=>{
     const filterId = historyFilterEl.value || "all";
     const filterName = filterId === "all" ? "All compounds" : ((state.compounds.find(c=>c.id===filterId)||{}).name || "All compounds");
+    const includeArchived = document.getElementById("export-include-archived").checked;
 
-    let logs = state.logs.slice().sort((a,b)=> b.ts - a.ts);
-    if(filterId !== "all") logs = logs.filter(l=> l.compoundId === filterId);
+    let logs = state.logs.filter(l => includeArchived || !l.archived);
+    if(filterId !== "all") logs = logs.filter(l => l.compoundId === filterId);
+    logs = logs.slice().sort((a,b)=> b.ts - a.ts);
 
     const rowsData = logs.map(l=>{
       const c = state.compounds.find(c=>c.id === l.compoundId);
@@ -1202,7 +1389,7 @@
       };
     });
 
-    const pdfStr = buildHistoryPdfBytes(rowsData, filterName, new Date().toLocaleString());
+    const pdfStr = buildHistoryPdfBytes(rowsData, filterName + (includeArchived ? " (incl. archived)" : ""), new Date().toLocaleString());
 
     // pdfStr is restricted to single-byte-safe characters, so a plain Blob
     // (no external library) produces a valid, correctly-sized PDF file.
