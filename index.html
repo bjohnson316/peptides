@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Peptides Tracker</title>
+<title>Peptides — Injection Tracker</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230F1719'/%3E%3Cg transform='rotate(45 12 12)' fill='none' stroke='%2355D9C4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='3' x2='12' y2='6'/%3E%3Crect x='8.5' y='6' width='7' height='9' rx='1.3'/%3E%3Cline x1='6.5' y1='15' x2='17.5' y2='15'/%3E%3Cline x1='12' y1='15' x2='12' y2='19.5'/%3E%3Cline x1='9.3' y1='19.5' x2='14.7' y2='19.5'/%3E%3Cline x1='10' y1='9' x2='14' y2='9'/%3E%3Cline x1='10' y1='11.7' x2='14' y2='11.7'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0F1719">
@@ -283,9 +283,9 @@
 <div class="wrap">
   <header class="top">
     <div>
-      <p class="brand-eyebrow"></p>
-      <h1 class="title">Peptides Tracker</h1>
-      <p class="subline"></p>
+      <p class="brand-eyebrow">Peptides</p>
+      <h1 class="title">Injection Tracker</h1>
+      <p class="subline">Local, private, on this device.</p>
       <button class="sync-pill" id="btn-github" type="button">
         <span class="dot"></span><span id="sync-pill-label">Local only — click to sync</span>
       </button>
@@ -311,7 +311,7 @@
   </div>
   <div class="history-controls">
     <select id="history-filter"><option value="all">All compounds</option></select>
-    <button class="btn small" id="btn-select-mode">Select to archive</button>
+    <button class="btn small" id="btn-select-mode">Select</button>
     <label class="archived-toggle"><input type="checkbox" id="show-archived-toggle"> Show archived</label>
   </div>
   <div class="select-bar" id="select-bar" style="display:none;">
@@ -334,11 +334,11 @@
 </div>
 
 <footer>
-  <p class="footer-note"></p>
+  <p class="footer-note">Tracking tool only — not medical guidance. Doses and schedules are whatever you enter; the app just does the math on when the next one's due. Data lives in this browser unless you connect GitHub sync (top-left pill) — use the buttons below for a manual local backup either way.</p>
   <div class="footer-actions">
     <label class="archived-toggle"><input type="checkbox" id="export-include-archived"> Include archived</label>
-    <button class="btn small" id="btn-export-pdf">Export history</button>
-    <button class="btn small" id="btn-export-report">Export report</button>
+    <button class="btn small" id="btn-export-pdf">Export history to PDF</button>
+    <button class="btn small" id="btn-export-report">Export full report (PDF)</button>
     <button class="btn small" id="btn-export">Export backup</button>
     <button class="btn small" id="btn-import">Import backup</button>
     <input type="file" id="import-file" accept="application/json" style="display:none">
@@ -1533,6 +1533,40 @@
   }
 
   // ---------- full metrics report ----------
+  // Walks a compound's FULL log history (regardless of report filters — archiving or a
+  // date-range filter shouldn't hide the fact a dose actually happened) and finds every
+  // expected due-date that passed with no log recorded before the next one (or before
+  // today, for the gap since the most recent log). Works for every frequency type by
+  // reusing the same due-date math as the live status calculation.
+  function computeMissedDosesForCompound(compound){
+    const cLogs = state.logs.filter(l=> l.compoundId === compound.id).sort((a,b)=> a.ts - b.ts);
+    if(cLogs.length === 0) return [];
+    const cfg = FREQUENCIES[compound.frequency];
+    const today = startOfDay(Date.now());
+    const missed = [];
+
+    for(let i=0;i<cLogs.length;i++){
+      const cur = cLogs[i];
+      const nextLog = cLogs[i+1] || null;
+      const boundary = nextLog ? startOfDay(nextLog.ts) : today;
+
+      let virtualLast = { ts: cur.ts };
+      for(let guard=0; guard<3650; guard++){ // safety cap: ~10 years of daily gaps
+        let dueDay;
+        if(cfg.cycle) dueDay = nextDueForCycle(compound, virtualLast);
+        else if(cfg.monthCycle) dueDay = nextDueForMonthCycle(compound, virtualLast);
+        else {
+          const intervalDays = cfg.custom ? (compound.customDays || 1) : cfg.days;
+          dueDay = startOfDay(virtualLast.ts) + intervalDays * DAY_MS;
+        }
+        if(dueDay >= boundary) break;
+        missed.push(dueDay);
+        virtualLast = { ts: dueDay };
+      }
+    }
+    return missed;
+  }
+
   function computeReportData(filters){
     filters = filters || {};
     const compoundIds = filters.compoundIds || null; // null = all compounds
@@ -1621,18 +1655,33 @@
       };
     });
 
+    const MISSED_DISPLAY_CAP = 200;
+    let missedDoses = [];
+    compounds.forEach(c=>{
+      computeMissedDosesForCompound(c).forEach(ts=>{
+        if(fromTs !== null && ts < fromTs) return;
+        if(toTs !== null && ts > toTs) return;
+        missedDoses.push({ compoundName: c.name, ts });
+      });
+    });
+    missedDoses.sort((a,b)=> b.ts - a.ts);
+    const missedDosesTotal = missedDoses.length;
+    const missedDosesTruncated = missedDosesTotal > MISSED_DISPLAY_CAP;
+    if(missedDosesTruncated) missedDoses = missedDoses.slice(0, MISSED_DISPLAY_CAP);
+
     return {
       totalCompounds: compounds.length,
       totalDoses, activeDoses, archivedDoses,
       overdue, dueToday, onTrack, notStarted,
       earliestTs, latestTs,
       siteSummaryOverall,
-      compoundRows
+      compoundRows,
+      missedDoses, missedDosesTotal, missedDosesTruncated
     };
   }
 
   function buildReportPdfBytes(report, generatedAt, sections){
-    sections = sections || { overview:true, compounds:true, siteUsage:true };
+    sections = sections || { overview:true, compounds:true, siteUsage:true, missed:true };
     const PAGE_W = 612, PAGE_H = 792;
     const MARGIN_X = 40;
     const INDENT_X = MARGIN_X + 14;
@@ -1699,7 +1748,7 @@
         line(`Doses logged: ${cr.totalLogs} (${cr.activeLogs} active, ${cr.archivedLogs} archived)`, { indent:true });
         line(`First logged: ${cr.firstLogged}    Last logged: ${cr.lastLogged}`, { indent:true });
         line(`Average interval between doses: ${cr.avgInterval}`, { indent:true });
-        line(`Site usage: ${pdfTruncate(cr.siteSummary, 85)}`, { indent:true, gapAfter: cr.notes ? 4 : 18 });
+        line(`Site usage: ${pdfTruncate(cr.siteSummary, 85)}`, { indent:true, gapAfter: cr.notes ? 13 : 18 });
         if(cr.notes){
           line(`Notes: ${pdfTruncate(cr.notes, 95)}`, { indent:true, gapAfter:18 });
         }
@@ -1713,6 +1762,21 @@
         line("No doses logged yet.", { indent:true });
       } else {
         report.siteSummaryOverall.forEach(s => line(s, { indent:true }));
+      }
+      rule();
+    }
+
+    if(sections.missed){
+      line("MISSED DOSES", { bold:true, size:11, gapAfter:16 });
+      if(report.missedDoses.length === 0){
+        line("None detected in this range.", { indent:true });
+      } else {
+        report.missedDoses.forEach(m=>{
+          line(`${m.compoundName} — missed on ${new Date(m.ts).toLocaleDateString()}`, { indent:true });
+        });
+        if(report.missedDosesTruncated){
+          line(`...and ${report.missedDosesTotal - report.missedDoses.length} more not shown.`, { indent:true, size:8.5 });
+        }
       }
     }
 
@@ -1735,6 +1799,7 @@
         <label class="check-row"><input type="checkbox" id="report-sec-overview" checked> Overview</label>
         <label class="check-row"><input type="checkbox" id="report-sec-compounds" checked> Compound details</label>
         <label class="check-row"><input type="checkbox" id="report-sec-sites" checked> Injection site usage</label>
+        <label class="check-row"><input type="checkbox" id="report-sec-missed" checked> Missed doses</label>
       </div>
       <div class="field">
         <label>Compounds to include</label>
@@ -1778,7 +1843,8 @@
       const sections = {
         overview: document.getElementById("report-sec-overview").checked,
         compounds: document.getElementById("report-sec-compounds").checked,
-        siteUsage: document.getElementById("report-sec-sites").checked
+        siteUsage: document.getElementById("report-sec-sites").checked,
+        missed: document.getElementById("report-sec-missed").checked
       };
 
       const checkedIds = Array.from(document.querySelectorAll(".report-compound-check"))

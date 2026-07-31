@@ -33,11 +33,12 @@ everything is stored in your browser's local storage on whatever device you use 
 - Optional 6pm email reminder on any day a dose is due, free via your own email account (needs
   GitHub sync — see below).
 - A full metrics report, also exportable as a real PDF with no external dependency: overview
-  counts (overdue/due today/on track), and per-compound stats — total doses logged, first/last
-  logged dates, average interval between doses, and injection-site usage breakdown, plus an
-  overall site-usage summary across every compound. A filter panel lets you narrow it down before
-  generating: pick which sections to include, which compounds to cover, a date range, and whether
-  to fold in archived entries.
+  counts (overdue/due today/on track), per-compound stats — total doses logged, first/last
+  logged dates, average interval between doses, and injection-site usage breakdown — an overall
+  site-usage summary across every compound, and a missed-doses section listing every specific
+  compound and date where an expected dose was never logged. A filter panel lets you narrow it
+  down before generating: pick which sections to include, which compounds to cover, a date range,
+  and whether to fold in archived entries.
 - Export/import a JSON backup — useful before clearing browser data or moving to a new device/browser.
 
 ## Hosting it on GitHub Pages
