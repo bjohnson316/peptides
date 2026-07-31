@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Peptides Tracker</title>
+<title>Peptides — Injection Tracker</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230F1719'/%3E%3Cg transform='rotate(45 12 12)' fill='none' stroke='%2355D9C4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='3' x2='12' y2='6'/%3E%3Crect x='8.5' y='6' width='7' height='9' rx='1.3'/%3E%3Cline x1='6.5' y1='15' x2='17.5' y2='15'/%3E%3Cline x1='12' y1='15' x2='12' y2='19.5'/%3E%3Cline x1='9.3' y1='19.5' x2='14.7' y2='19.5'/%3E%3Cline x1='10' y1='9' x2='14' y2='9'/%3E%3Cline x1='10' y1='11.7' x2='14' y2='11.7'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0F1719">
@@ -227,6 +227,18 @@
   .field{ margin-bottom:14px; }
   .field label{ display:block; font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color: var(--ink-faint); margin-bottom:6px; }
   .field input, .field select{ width:100%; }
+  .field input[type="checkbox"]{ width:auto; }
+  label.check-row{
+    display:flex; align-items:center; gap:9px;
+    padding:6px 0; font-size:13.5px; color: var(--ink);
+    text-transform:none; letter-spacing:normal; margin-bottom:0;
+    cursor:pointer;
+  }
+  label.check-row input[type="checkbox"]{ width:auto; flex:none; margin:0; }
+  .check-list{
+    max-height:160px; overflow-y:auto;
+    border:1px solid var(--line); border-radius:7px; padding:2px 10px;
+  }
   .field-row{ display:flex; gap:10px; }
   .field-row .field{ flex:1; }
   .chip-row{ display:flex; gap:8px; flex-wrap:wrap; }
@@ -266,9 +278,9 @@
 <div class="wrap">
   <header class="top">
     <div>
-      <p class="brand-eyebrow"></p>
-      <h1 class="title">Peptide Tracker</h1>
-      <p class="subline"></p>
+      <p class="brand-eyebrow">Peptides</p>
+      <h1 class="title">Injection Tracker</h1>
+      <p class="subline">Local, private, on this device.</p>
       <button class="sync-pill" id="btn-github" type="button">
         <span class="dot"></span><span id="sync-pill-label">Local only — click to sync</span>
       </button>
@@ -294,7 +306,7 @@
   </div>
   <div class="history-controls">
     <select id="history-filter"><option value="all">All compounds</option></select>
-    <button class="btn small" id="btn-select-mode">Select to archive</button>
+    <button class="btn small" id="btn-select-mode">Select</button>
     <label class="archived-toggle"><input type="checkbox" id="show-archived-toggle"> Show archived</label>
   </div>
   <div class="select-bar" id="select-bar" style="display:none;">
@@ -317,10 +329,11 @@
 </div>
 
 <footer>
-  <p class="footer-note"></p>
+  <p class="footer-note">Tracking tool only — not medical guidance. Doses and schedules are whatever you enter; the app just does the math on when the next one's due. Data lives in this browser unless you connect GitHub sync (top-left pill) — use the buttons below for a manual local backup either way.</p>
   <div class="footer-actions">
     <label class="archived-toggle"><input type="checkbox" id="export-include-archived"> Include archived</label>
     <button class="btn small" id="btn-export-pdf">Export history to PDF</button>
+    <button class="btn small" id="btn-export-report">Export full report (PDF)</button>
     <button class="btn small" id="btn-export">Export backup</button>
     <button class="btn small" id="btn-import">Import backup</button>
     <input type="file" id="import-file" accept="application/json" style="display:none">
@@ -1399,6 +1412,55 @@
     return str.length > n ? str.slice(0, n-1) + "..." : str;
   }
 
+  // Shared low-level PDF byte assembly — takes an array of pages, each an
+  // array of already-built content-stream operators, and produces a valid
+  // minimal PDF file (Catalog, Pages, two standard fonts, xref, trailer).
+  // Used by both the history export and the full report export below.
+  function assemblePdfFromPages(pages, PAGE_W, PAGE_H){
+    const objects = {};
+    const numPages = pages.length;
+    const pageObjNums = [];
+    const contentObjNums = [];
+    let nextObjNum = 5;
+    for(let i=0;i<numPages;i++){
+      pageObjNums.push(nextObjNum++);
+      contentObjNums.push(nextObjNum++);
+    }
+
+    objects[1] = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
+    const kidsStr = pageObjNums.map(n=>`${n} 0 R`).join(" ");
+    objects[2] = `2 0 obj\n<< /Type /Pages /Kids [ ${kidsStr} ] /Count ${numPages} >>\nendobj\n`;
+    objects[3] = `3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
+    objects[4] = `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`;
+
+    for(let i=0;i<numPages;i++){
+      const pageNum = pageObjNums[i];
+      const contentNum = contentObjNums[i];
+      const streamBody = pages[i].join("\n");
+      const streamLen = streamBody.length;
+      objects[pageNum] = `${pageNum} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentNum} 0 R >>\nendobj\n`;
+      objects[contentNum] = `${contentNum} 0 obj\n<< /Length ${streamLen} >>\nstream\n${streamBody}\nendstream\nendobj\n`;
+    }
+
+    let pdf = "%PDF-1.4\n";
+    const offsets = {};
+    const maxObjNum = 4 + numPages*2;
+    for(let n=1;n<=maxObjNum;n++){
+      offsets[n] = pdf.length;
+      pdf += objects[n];
+    }
+
+    const xrefOffset = pdf.length;
+    let xref = `xref\n0 ${maxObjNum+1}\n0000000000 65535 f \n`;
+    for(let n=1;n<=maxObjNum;n++){
+      xref += String(offsets[n]).padStart(10,"0") + " 00000 n \n";
+    }
+    pdf += xref;
+    pdf += `trailer\n<< /Size ${maxObjNum+1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+    return pdf;
+  }
+
   function buildHistoryPdfBytes(rowsData, filterName, generatedAt){
     const PAGE_W = 612, PAGE_H = 792;
     const MARGIN_X = 40;
@@ -1456,49 +1518,289 @@
 
     pages.push(ops);
 
-    const objects = {};
-    const numPages = pages.length;
-    const pageObjNums = [];
-    const contentObjNums = [];
-    let nextObjNum = 5;
-    for(let i=0;i<numPages;i++){
-      pageObjNums.push(nextObjNum++);
-      contentObjNums.push(nextObjNum++);
-    }
-
-    objects[1] = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
-    const kidsStr = pageObjNums.map(n=>`${n} 0 R`).join(" ");
-    objects[2] = `2 0 obj\n<< /Type /Pages /Kids [ ${kidsStr} ] /Count ${numPages} >>\nendobj\n`;
-    objects[3] = `3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
-    objects[4] = `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`;
-
-    for(let i=0;i<numPages;i++){
-      const pageNum = pageObjNums[i];
-      const contentNum = contentObjNums[i];
-      const streamBody = pages[i].join("\n");
-      const streamLen = streamBody.length;
-      objects[pageNum] = `${pageNum} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentNum} 0 R >>\nendobj\n`;
-      objects[contentNum] = `${contentNum} 0 obj\n<< /Length ${streamLen} >>\nstream\n${streamBody}\nendstream\nendobj\n`;
-    }
-
-    let pdf = "%PDF-1.4\n";
-    const offsets = {};
-    const maxObjNum = 4 + numPages*2;
-    for(let n=1;n<=maxObjNum;n++){
-      offsets[n] = pdf.length;
-      pdf += objects[n];
-    }
-
-    const xrefOffset = pdf.length;
-    let xref = `xref\n0 ${maxObjNum+1}\n0000000000 65535 f \n`;
-    for(let n=1;n<=maxObjNum;n++){
-      xref += String(offsets[n]).padStart(10,"0") + " 00000 n \n";
-    }
-    pdf += xref;
-    pdf += `trailer\n<< /Size ${maxObjNum+1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-    return pdf;
+    return assemblePdfFromPages(pages, PAGE_W, PAGE_H);
   }
+
+  // ---------- full metrics report ----------
+  function computeReportData(filters){
+    filters = filters || {};
+    const compoundIds = filters.compoundIds || null; // null = all compounds
+    const fromTs = filters.fromTs || null;
+    const toTs = filters.toTs || null;
+    const includeArchived = !!filters.includeArchived;
+
+    const compounds = compoundIds ? state.compounds.filter(c=> compoundIds.has(c.id)) : state.compounds;
+
+    function logsMatchFilters(l){
+      if(!includeArchived && l.archived) return false;
+      if(fromTs !== null && l.ts < fromTs) return false;
+      if(toTs !== null && l.ts > toTs) return false;
+      return true;
+    }
+
+    const allLogs = state.logs.filter(l=>{
+      if(compoundIds && !compoundIds.has(l.compoundId)) return false;
+      return logsMatchFilters(l);
+    });
+
+    const totalDoses = allLogs.length;
+    const activeDoses = allLogs.filter(l=>!l.archived).length;
+    const archivedDoses = totalDoses - activeDoses;
+
+    let overdue = 0, dueToday = 0, onTrack = 0, notStarted = 0;
+    compounds.forEach(c=>{
+      const s = statusFor(c);
+      if(s.key === "overdue") overdue++;
+      else if(s.key === "today") dueToday++;
+      else if(s.key === "soon" || s.key === "ontrack") onTrack++;
+      else if(s.key === "new") notStarted++;
+    });
+
+    let earliestTs = null, latestTs = null;
+    allLogs.forEach(l=>{
+      if(earliestTs === null || l.ts < earliestTs) earliestTs = l.ts;
+      if(latestTs === null || l.ts > latestTs) latestTs = l.ts;
+    });
+
+    const siteTotals = {};
+    allLogs.forEach(l=>{
+      const s = l.site || "Unspecified";
+      siteTotals[s] = (siteTotals[s] || 0) + 1;
+    });
+    const siteSummaryOverall = Object.keys(siteTotals)
+      .sort((a,b)=> siteTotals[b] - siteTotals[a])
+      .map(s => `${s}: ${siteTotals[s]}`);
+
+    const compoundRows = compounds.map(c=>{
+      const cLogs = allLogs.filter(l=> l.compoundId === c.id).sort((a,b)=> a.ts - b.ts);
+      const active = cLogs.filter(l=> !l.archived).length;
+      const archived = cLogs.length - active;
+      const first = cLogs[0] || null;
+      const last = cLogs[cLogs.length - 1] || null;
+
+      let avgInterval = null;
+      if(cLogs.length >= 2){
+        let totalGap = 0;
+        for(let i=1;i<cLogs.length;i++) totalGap += (cLogs[i].ts - cLogs[i-1].ts);
+        avgInterval = totalGap / (cLogs.length - 1) / DAY_MS;
+      }
+
+      const siteCounts = {};
+      cLogs.forEach(l=>{
+        const s = l.site || "Unspecified";
+        siteCounts[s] = (siteCounts[s] || 0) + 1;
+      });
+      const siteSummary = Object.keys(siteCounts)
+        .sort((a,b)=> siteCounts[b] - siteCounts[a])
+        .map(s => `${s} (${siteCounts[s]})`).join(", ");
+
+      return {
+        name: c.name,
+        frequency: frequencyLabel(c),
+        dose: c.doseAmount ? `${c.doseAmount}${c.doseUnit||""}` : "Not set",
+        status: statusFor(c).label,
+        totalLogs: cLogs.length,
+        activeLogs: active,
+        archivedLogs: archived,
+        firstLogged: first ? new Date(first.ts).toLocaleDateString() : "—",
+        lastLogged: last ? new Date(last.ts).toLocaleDateString() : "—",
+        avgInterval: avgInterval !== null ? avgInterval.toFixed(1) + " days" : "—",
+        siteSummary: siteSummary || "—"
+      };
+    });
+
+    return {
+      totalCompounds: compounds.length,
+      totalDoses, activeDoses, archivedDoses,
+      overdue, dueToday, onTrack, notStarted,
+      earliestTs, latestTs,
+      siteSummaryOverall,
+      compoundRows
+    };
+  }
+
+  function buildReportPdfBytes(report, generatedAt, sections){
+    sections = sections || { overview:true, compounds:true, siteUsage:true };
+    const PAGE_W = 612, PAGE_H = 792;
+    const MARGIN_X = 40;
+    const INDENT_X = MARGIN_X + 14;
+    const TOP_Y = 742;
+    const BOTTOM_Y = 50;
+    const LINE_H = 14;
+
+    const pages = [];
+    let ops = [];
+    let y = TOP_Y;
+
+    function ensureRoom(lines){
+      if(y - lines * LINE_H < BOTTOM_Y){
+        pages.push(ops);
+        ops = [];
+        y = TOP_Y;
+      }
+    }
+    function line(text, opts){
+      opts = opts || {};
+      const font = opts.bold ? "F2" : "F1";
+      const size = opts.size || 9.5;
+      const x = opts.indent ? INDENT_X : MARGIN_X;
+      ensureRoom(1);
+      ops.push(`BT /${font} ${size} Tf 1 0 0 1 ${x} ${y} Tm (${pdfEscapeText(text)}) Tj ET`);
+      y -= (opts.gapAfter || LINE_H);
+    }
+    function rule(){
+      ensureRoom(1);
+      ops.push(`0.7 G`);
+      ops.push(`${MARGIN_X} ${y} m ${PAGE_W-MARGIN_X} ${y} l S`);
+      ops.push(`0 G`);
+      y -= 10;
+    }
+
+    line("Peptides - Full Report", { bold:true, size:16, gapAfter:20 });
+    line(`Generated ${generatedAt}`, { size:9, gapAfter:16 });
+
+    if(sections.overview){
+      line("OVERVIEW", { bold:true, size:11, gapAfter:16 });
+      line(`Compounds tracked: ${report.totalCompounds}`, { indent:true });
+      line(`Total doses logged: ${report.totalDoses} (${report.activeDoses} active, ${report.archivedDoses} archived)`, { indent:true });
+      line(`Currently overdue: ${report.overdue}`, { indent:true });
+      line(`Due today: ${report.dueToday}`, { indent:true });
+      line(`On track: ${report.onTrack}`, { indent:true });
+      if(report.notStarted > 0) line(`Not started yet: ${report.notStarted}`, { indent:true });
+      const rangeText = (report.earliestTs && report.latestTs)
+        ? `${new Date(report.earliestTs).toLocaleDateString()} to ${new Date(report.latestTs).toLocaleDateString()}`
+        : "No doses logged yet";
+      line(`Data range: ${rangeText}`, { indent:true, gapAfter:20 });
+      rule();
+    }
+
+    if(sections.compounds){
+      line("COMPOUND DETAILS", { bold:true, size:11, gapAfter:16 });
+      if(report.compoundRows.length === 0){
+        line("No compounds match the current filters.", { indent:true });
+      }
+      report.compoundRows.forEach(cr=>{
+        ensureRoom(8);
+        line(cr.name, { bold:true, size:10.5, gapAfter:14 });
+        line(`Frequency: ${cr.frequency}    Dose: ${cr.dose}`, { indent:true });
+        line(`Status: ${cr.status}`, { indent:true });
+        line(`Doses logged: ${cr.totalLogs} (${cr.activeLogs} active, ${cr.archivedLogs} archived)`, { indent:true });
+        line(`First logged: ${cr.firstLogged}    Last logged: ${cr.lastLogged}`, { indent:true });
+        line(`Average interval between doses: ${cr.avgInterval}`, { indent:true });
+        line(`Site usage: ${pdfTruncate(cr.siteSummary, 85)}`, { indent:true, gapAfter:18 });
+      });
+      rule();
+    }
+
+    if(sections.siteUsage){
+      line("INJECTION SITE USAGE (ALL COMPOUNDS)", { bold:true, size:11, gapAfter:16 });
+      if(report.siteSummaryOverall.length === 0){
+        line("No doses logged yet.", { indent:true });
+      } else {
+        report.siteSummaryOverall.forEach(s => line(s, { indent:true }));
+      }
+    }
+
+    pages.push(ops);
+
+    return assemblePdfFromPages(pages, PAGE_W, PAGE_H);
+  }
+
+  function openReportFilterModal(){
+    const compoundChecks = state.compounds.map(c=>
+      `<label class="check-row">
+        <input type="checkbox" class="report-compound-check" value="${c.id}" checked> ${escapeHtml(c.name)}
+      </label>`
+    ).join("");
+
+    openModal(`
+      <h3>Report filters</h3>
+      <div class="field">
+        <label>Sections to include</label>
+        <label class="check-row"><input type="checkbox" id="report-sec-overview" checked> Overview</label>
+        <label class="check-row"><input type="checkbox" id="report-sec-compounds" checked> Compound details</label>
+        <label class="check-row"><input type="checkbox" id="report-sec-sites" checked> Injection site usage</label>
+      </div>
+      <div class="field">
+        <label>Compounds to include</label>
+        <div style="display:flex; gap:12px; margin-bottom:6px;">
+          <button type="button" class="btn ghost small" id="report-select-all">Select all</button>
+          <button type="button" class="btn ghost small" id="report-select-none">Select none</button>
+        </div>
+        <div class="check-list">
+          ${compoundChecks || `<div class="hint">No compounds configured yet.</div>`}
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="report-from">From date</label>
+          <input type="date" id="report-from">
+        </div>
+        <div class="field">
+          <label for="report-to">To date</label>
+          <input type="date" id="report-to">
+        </div>
+      </div>
+      <div class="hint" style="margin-top:-8px; margin-bottom:14px;">Leave both blank to include all-time data. The date range only affects dose counts and stats — current due/overdue status always reflects right now.</div>
+      <div class="field">
+        <label class="check-row"><input type="checkbox" id="report-include-archived"> Include archived entries</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="report-cancel" type="button">Cancel</button>
+        <button class="btn primary" id="report-generate" type="button">Generate PDF</button>
+      </div>
+    `);
+
+    document.getElementById("report-cancel").addEventListener("click", closeModal);
+    document.getElementById("report-select-all").addEventListener("click", ()=>{
+      document.querySelectorAll(".report-compound-check").forEach(cb=> cb.checked = true);
+    });
+    document.getElementById("report-select-none").addEventListener("click", ()=>{
+      document.querySelectorAll(".report-compound-check").forEach(cb=> cb.checked = false);
+    });
+
+    document.getElementById("report-generate").addEventListener("click", ()=>{
+      const sections = {
+        overview: document.getElementById("report-sec-overview").checked,
+        compounds: document.getElementById("report-sec-compounds").checked,
+        siteUsage: document.getElementById("report-sec-sites").checked
+      };
+
+      const checkedIds = Array.from(document.querySelectorAll(".report-compound-check"))
+        .filter(cb=> cb.checked).map(cb=> cb.value);
+      const compoundIds = checkedIds.length === state.compounds.length ? null : new Set(checkedIds);
+
+      const fromVal = document.getElementById("report-from").value;
+      const toVal = document.getElementById("report-to").value;
+      const fromTs = fromVal ? new Date(fromVal + "T00:00:00").getTime() : null;
+      const toTs = toVal ? new Date(toVal + "T23:59:59").getTime() : null;
+
+      const includeArchived = document.getElementById("report-include-archived").checked;
+
+      if(checkedIds.length === 0){
+        toast("Select at least one compound");
+        return;
+      }
+
+      const report = computeReportData({ compoundIds, fromTs, toTs, includeArchived });
+      const pdfStr = buildReportPdfBytes(report, new Date().toLocaleString(), sections);
+
+      const blob = new Blob([pdfStr], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0,10);
+      a.href = url;
+      a.download = `peptides-full-report-${stamp}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      closeModal();
+      toast("Report exported");
+    });
+  }
+
+  document.getElementById("btn-export-report").addEventListener("click", openReportFilterModal);
 
   document.getElementById("btn-export-pdf").addEventListener("click", ()=>{
     const filterId = historyFilterEl.value || "all";
