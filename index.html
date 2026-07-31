@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Peptide Tracker</title>
+<title>Peptides — Injection Tracker</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230F1719'/%3E%3Cg transform='rotate(45 12 12)' fill='none' stroke='%2355D9C4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='3' x2='12' y2='6'/%3E%3Crect x='8.5' y='6' width='7' height='9' rx='1.3'/%3E%3Cline x1='6.5' y1='15' x2='17.5' y2='15'/%3E%3Cline x1='12' y1='15' x2='12' y2='19.5'/%3E%3Cline x1='9.3' y1='19.5' x2='14.7' y2='19.5'/%3E%3Cline x1='10' y1='9' x2='14' y2='9'/%3E%3Cline x1='10' y1='11.7' x2='14' y2='11.7'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0F1719">
@@ -266,11 +266,11 @@
 <div class="wrap">
   <header class="top">
     <div>
-      <p class="brand-eyebrow"></p>
-      <h1 class="title">Peptide Tracker</h1>
-      <p class="subline"></p>
+      <p class="brand-eyebrow">Peptides</p>
+      <h1 class="title">Injection Tracker</h1>
+      <p class="subline">Local, private, on this device.</p>
       <button class="sync-pill" id="btn-github" type="button">
-        <span class="dot"></span><span id="sync-pill-label">Local only - click to sync</span>
+        <span class="dot"></span><span id="sync-pill-label">Local only — click to sync</span>
       </button>
     </div>
     <div class="shift-strip">
@@ -294,7 +294,7 @@
   </div>
   <div class="history-controls">
     <select id="history-filter"><option value="all">All compounds</option></select>
-    <button class="btn small" id="btn-select-mode">Select to Archive</button>
+    <button class="btn small" id="btn-select-mode">Select</button>
     <label class="archived-toggle"><input type="checkbox" id="show-archived-toggle"> Show archived</label>
   </div>
   <div class="select-bar" id="select-bar" style="display:none;">
@@ -317,7 +317,7 @@
 </div>
 
 <footer>
-  <p class="footer-note"></p>
+  <p class="footer-note">Tracking tool only — not medical guidance. Doses and schedules are whatever you enter; the app just does the math on when the next one's due. Data lives in this browser unless you connect GitHub sync (top-left pill) — use the buttons below for a manual local backup either way.</p>
   <div class="footer-actions">
     <label class="archived-toggle"><input type="checkbox" id="export-include-archived"> Include archived</label>
     <button class="btn small" id="btn-export-pdf">Export history to PDF</button>
@@ -340,11 +340,12 @@
   const DAY_MS = 86400000;
 
   const FREQUENCIES = {
-    daily:    { label: "Daily",              days: 1  },
-    weekly:   { label: "Weekly",             days: 7  },
-    biweekly: { label: "Every 2 weeks",      days: 14 },
-    cycle5_2: { label: "5 days on, 2 off",   cycle: true, onDays: 5, cycleLength: 7 },
-    custom:   { label: "Custom",             custom: true }
+    daily:       { label: "Daily",                  days: 1  },
+    weekly:      { label: "Weekly",                 days: 7  },
+    biweekly:    { label: "Every 2 weeks",          days: 14 },
+    cycle5_2:    { label: "5 days on, 2 off",       cycle: true, onDays: 5, cycleLength: 7 },
+    monthOnOff:  { label: "1 month on, 1 off",      monthCycle: true, onMonths: 1, offMonths: 1 },
+    custom:      { label: "Custom",                 custom: true }
   };
 
   function frequencyLabel(compound){
@@ -552,11 +553,36 @@
     return d;
   }
 
+  function monthsBetween(anchorTs, ts){
+    const a = new Date(anchorTs);
+    const b = new Date(ts);
+    return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  }
+
+  function isOnMonth(compound, dayStartTs){
+    const cfg = FREQUENCIES[compound.frequency];
+    const anchor = compound.cycleAnchor || dayStartTs;
+    const diff = monthsBetween(anchor, dayStartTs);
+    const cycleLen = cfg.onMonths + cfg.offMonths;
+    const pos = ((diff % cycleLen) + cycleLen) % cycleLen;
+    return pos < cfg.onMonths;
+  }
+
+  function nextDueForMonthCycle(compound, last){
+    let d = startOfDay(last.ts) + DAY_MS;
+    for(let i=0;i<400;i++){ // comfortably covers a full off-month even at 31 days
+      if(isOnMonth(compound, d)) return d;
+      d += DAY_MS;
+    }
+    return d;
+  }
+
   function nextDueFor(compound){
     const last = lastLogFor(compound.id);
     if(!last) return null;
     const cfg = FREQUENCIES[compound.frequency];
     if(cfg.cycle) return nextDueForCycle(compound, last);
+    if(cfg.monthCycle) return nextDueForMonthCycle(compound, last);
     if(cfg.custom) return last.ts + (compound.customDays || 1) * DAY_MS;
     return last.ts + cfg.days * DAY_MS;
   }
@@ -1064,7 +1090,14 @@
         <label for="e-name">Name</label>
         <input type="text" id="e-name" value="${escapeHtml(c.name)}" placeholder="e.g. GLP-1">
       </div>
-      <div class="field-row">
+      <div class="field">
+        <label>Dose entry</label>
+        <div class="chip-row" id="e-dosemode-row">
+          <button type="button" class="chip ${(c.doseMode||'manual')==='manual'?'active':''}" data-mode="manual">Enter dose directly</button>
+          <button type="button" class="chip ${c.doseMode==='calculated'?'active':''}" data-mode="calculated">Calculate from concentration</button>
+        </div>
+      </div>
+      <div class="field-row" id="e-manual-wrap" style="display:${(c.doseMode||'manual')==='manual' ? 'flex':'none'};">
         <div class="field">
           <label for="e-dose">Usual dose</label>
           <input type="text" id="e-dose" value="${escapeHtml(c.doseAmount)}" placeholder="0.5">
@@ -1074,14 +1107,28 @@
           <input type="text" id="e-unit" value="${escapeHtml(c.doseUnit||'')}" placeholder="mg / mcg / IU">
         </div>
       </div>
+      <div id="e-calc-wrap" style="display:${c.doseMode==='calculated' ? 'block':'none'};">
+        <div class="field-row">
+          <div class="field">
+            <label for="e-concentration">Concentration (mg/mL)</label>
+            <input type="text" id="e-concentration" value="${c.concentration != null ? c.concentration : ''}" placeholder="e.g. 5, or 10mg/2mL">
+            <div class="hint">A plain number, or a vial ratio like 10mg/2mL — either works.</div>          </div>
+          <div class="field">
+            <label for="e-units">Units drawn (U-100 syringe)</label>
+            <input type="number" id="e-units" min="0" step="any" value="${c.prescribedUnits != null ? c.prescribedUnits : ''}" placeholder="e.g. 20">
+          </div>
+        </div>
+        <div class="hint" id="e-calc-readout">Enter both values to calculate the mg dose.</div>
+        <div class="hint">Assumes a standard U-100 insulin syringe, where 100 units = 1mL. Double-check against your prescription if you're using a different syringe.</div>
+      </div>
       <div class="field">
         <label>Frequency</label>
         <div class="chip-row" id="e-freq-row">${freqChips}</div>
       </div>
-      <div class="field" id="e-anchor-wrap" style="display:${c.frequency==='cycle5_2' ? 'block':'none'};">
-        <label for="e-anchor">Cycle start (first "on" day)</label>
+      <div class="field" id="e-anchor-wrap" style="display:${(c.frequency==='cycle5_2'||c.frequency==='monthOnOff') ? 'block':'none'};">
+        <label for="e-anchor" id="e-anchor-label">Cycle start (first "on" day)</label>
         <input type="date" id="e-anchor" value="${c.cycleAnchor ? toDateInputValue(c.cycleAnchor) : toDateInputValue(Date.now())}">
-        <div class="hint">5 on-days from this date, then 2 off, repeating.</div>
+        <div class="hint" id="e-anchor-hint">${c.frequency==='monthOnOff' ? "1 month on from this date, then 1 month off, repeating." : "5 on-days from this date, then 2 off, repeating."}</div>
       </div>
       <div class="field" id="e-custom-wrap" style="display:${c.frequency==='custom' ? 'block':'none'};">
         <label for="e-custom-days">Every how many days</label>
@@ -1103,13 +1150,59 @@
     `);
 
     let selectedFreq = c.frequency;
+    let selectedDoseMode = c.doseMode === "calculated" ? "calculated" : "manual";
+
+    function formatMg(n){
+      if(!isFinite(n)) return "";
+      const rounded = Math.round(n * 10000) / 10000;
+      return rounded.toString();
+    }
+    function parseConcentration(str){
+      str = String(str == null ? "" : str).trim();
+      if(!str) return NaN;
+      // accepts a plain number ("5") or a vial ratio like "10mg/2mL" or "10/2"
+      const ratioMatch = str.match(/([\d.]+)\s*(?:mg)?\s*\/\s*([\d.]+)\s*(?:mL|ml)?/i);
+      if(ratioMatch){
+        const num = parseFloat(ratioMatch[1]);
+        const den = parseFloat(ratioMatch[2]);
+        if(isFinite(num) && isFinite(den) && den > 0) return num / den;
+      }
+      return parseFloat(str);
+    }
+    function updateCalcReadout(){
+      const conc = parseConcentration(document.getElementById("e-concentration").value);
+      const units = parseFloat(document.getElementById("e-units").value);
+      const readout = document.getElementById("e-calc-readout");
+      if(isFinite(conc) && conc > 0 && isFinite(units) && units > 0){
+        readout.textContent = `= ${formatMg(conc * units / 100)}mg per dose${document.getElementById("e-concentration").value.includes("/") ? ` (${formatMg(conc)}mg/mL)` : ""}`;
+      } else {
+        readout.textContent = "Enter both values to calculate the mg dose.";
+      }
+    }
+    document.getElementById("e-concentration").addEventListener("input", updateCalcReadout);
+    document.getElementById("e-units").addEventListener("input", updateCalcReadout);
+    updateCalcReadout();
+
+    document.getElementById("e-dosemode-row").addEventListener("click", (e)=>{
+      const btn = e.target.closest("[data-mode]");
+      if(!btn) return;
+      selectedDoseMode = btn.dataset.mode;
+      document.querySelectorAll("#e-dosemode-row .chip").forEach(ch=>ch.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("e-manual-wrap").style.display = selectedDoseMode === "manual" ? "flex" : "none";
+      document.getElementById("e-calc-wrap").style.display = selectedDoseMode === "calculated" ? "block" : "none";
+    });
+
     document.getElementById("e-freq-row").addEventListener("click", (e)=>{
       const btn = e.target.closest("[data-freq]");
       if(!btn) return;
       selectedFreq = btn.dataset.freq;
       document.querySelectorAll("#e-freq-row .chip").forEach(ch=>ch.classList.remove("active"));
       btn.classList.add("active");
-      document.getElementById("e-anchor-wrap").style.display = selectedFreq === "cycle5_2" ? "block" : "none";
+      document.getElementById("e-anchor-wrap").style.display = (selectedFreq === "cycle5_2" || selectedFreq === "monthOnOff") ? "block" : "none";
+      document.getElementById("e-anchor-hint").textContent = selectedFreq === "monthOnOff"
+        ? "1 month on from this date, then 1 month off, repeating."
+        : "5 on-days from this date, then 2 off, repeating.";
       document.getElementById("e-custom-wrap").style.display = selectedFreq === "custom" ? "block" : "none";
     });
 
@@ -1130,10 +1223,24 @@
       const name = document.getElementById("e-name").value.trim();
       if(!name){ toast("Name it before saving"); return; }
       c.name = name;
-      c.doseAmount = document.getElementById("e-dose").value.trim();
-      c.doseUnit = document.getElementById("e-unit").value.trim();
+      c.doseMode = selectedDoseMode;
+      if(selectedDoseMode === "calculated"){
+        const conc = parseConcentration(document.getElementById("e-concentration").value);
+        const units = parseFloat(document.getElementById("e-units").value);
+        if(!isFinite(conc) || conc <= 0 || !isFinite(units) || units <= 0){
+          toast("Enter a valid concentration and units first");
+          return;
+        }
+        c.concentration = conc;
+        c.prescribedUnits = units;
+        c.doseAmount = formatMg(conc * units / 100);
+        c.doseUnit = "mg";
+      } else {
+        c.doseAmount = document.getElementById("e-dose").value.trim();
+        c.doseUnit = document.getElementById("e-unit").value.trim();
+      }
       c.frequency = selectedFreq;
-      if(selectedFreq === "cycle5_2"){
+      if(selectedFreq === "cycle5_2" || selectedFreq === "monthOnOff"){
         const anchorVal = document.getElementById("e-anchor").value;
         c.cycleAnchor = anchorVal ? new Date(anchorVal + "T00:00:00").getTime() : startOfDay(Date.now());
       }

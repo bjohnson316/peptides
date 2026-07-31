@@ -7,8 +7,11 @@ everything is stored in your browser's local storage on whatever device you use 
 ## What it does
 
 - Tracks any number of compounds, each with its own dose, frequency, and injection-site rotation.
-- Frequencies: daily, weekly, every 2 weeks, a 5-days-on/2-days-off cycle (set a cycle start date
-  and it repeats automatically), or a custom "every N days" interval you set yourself.
+- Frequencies: daily, weekly, every 2 weeks, a 5-days-on/2-days-off cycle, a 1-month-on/1-month-off
+  cycle, or a custom "every N days" interval you set yourself. Both cycle options take a start
+  date and repeat automatically from there — the monthly one alternates full calendar months
+  (e.g. January on, February off, March on) rather than a fixed day count, so it stays aligned
+  regardless of month length.
 - Shows an at-a-glance status per compound: overdue, due today, due tomorrow, or on track,
   calculated from your last logged dose.
 - Suggests the next injection site in rotation each time you log a dose.
@@ -21,6 +24,9 @@ everything is stored in your browser's local storage on whatever device you use 
   toggle brings them back into view, and anything archived can be unarchived just as easily.
 - Logging a dose pre-fills the compound's usual dose automatically — just adjust it if this one's
   different.
+- Dose can be entered directly, or calculated for you: enter the peptide's concentration (mg/mL)
+  and how many units you draw on a standard U-100 insulin syringe, and it works out the mg dose
+  and uses that as the usual dose going forward.
 - Optional 6pm email reminder on any day a dose is due, free via your own email account (needs
   GitHub sync — see below).
 - Export/import a JSON backup — useful before clearing browser data or moving to a new device/browser.
