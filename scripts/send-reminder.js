@@ -23,10 +23,12 @@ const DAY_MS = 86400000;
 
 // Mirrors the frequency logic in index.html
 const FREQUENCIES = {
-  daily:    { days: 1 },
-  weekly:   { days: 7 },
-  biweekly: { days: 14 },
-  cycle5_2: { cycle: true, onDays: 5, cycleLength: 7 }
+  daily:      { days: 1 },
+  weekly:     { days: 7 },
+  biweekly:   { days: 14 },
+  cycle5_2:   { cycle: true, onDays: 5, cycleLength: 7 },
+  monthOnOff: { monthCycle: true, onMonths: 1, offMonths: 1 },
+  custom:     { custom: true }
 };
 
 // Day-boundary math must use the reminder's configured timezone, NOT the
@@ -48,6 +50,23 @@ function isOnDay(compound, dayKey) {
   return pos < cfg.onDays;
 }
 
+// dayKey values are Date.UTC(y, m-1, d) markers, so reading them back with the
+// UTC getters recovers the exact same calendar date without a second timezone lookup.
+function monthsBetweenKeys(anchorDayKey, dayKey) {
+  const a = new Date(anchorDayKey);
+  const b = new Date(dayKey);
+  return (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
+}
+
+function isOnMonth(compound, dayKey) {
+  const cfg = FREQUENCIES[compound.frequency];
+  const anchorKey = compound.cycleAnchor ? localDayKey(compound.cycleAnchor, TIMEZONE) : dayKey;
+  const diff = monthsBetweenKeys(anchorKey, dayKey);
+  const cycleLen = cfg.onMonths + cfg.offMonths;
+  const pos = ((diff % cycleLen) + cycleLen) % cycleLen;
+  return pos < cfg.onMonths;
+}
+
 function lastLogFor(logs, compoundId) {
   let last = null;
   for (const l of logs) {
@@ -66,14 +85,25 @@ function nextDueForCycle(compound, last) {
   return d;
 }
 
+function nextDueForMonthCycle(compound, last) {
+  let d = localDayKey(last.ts, TIMEZONE) + DAY_MS;
+  for (let i = 0; i < 400; i++) { // comfortably covers a full off-month even at 31 days
+    if (isOnMonth(compound, d)) return d;
+    d += DAY_MS;
+  }
+  return d;
+}
+
 function nextDueFor(compound, logs) {
   const last = lastLogFor(logs, compound.id);
   if (!last) return null; // never logged yet — nothing to remind about
   const cfg = FREQUENCIES[compound.frequency];
   if (cfg.cycle) return nextDueForCycle(compound, last);
+  if (cfg.monthCycle) return nextDueForMonthCycle(compound, last);
+  const intervalDays = cfg.custom ? (compound.customDays || 1) : cfg.days;
   // interval types: advance by N calendar days in the reminder's timezone,
   // not N*24h of raw elapsed time (which can drift a day near DST changes)
-  return localDayKey(last.ts, TIMEZONE) + cfg.days * DAY_MS;
+  return localDayKey(last.ts, TIMEZONE) + intervalDays * DAY_MS;
 }
 
 function currentLocalHour() {
