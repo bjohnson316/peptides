@@ -27,8 +27,17 @@ everything is stored in your browser's local storage on whatever device you use 
 - Dose can be entered directly, or calculated for you: enter the peptide's concentration (mg/mL)
   and how many units you draw on a standard U-100 insulin syringe, and it works out the mg dose
   and uses that as the usual dose going forward.
+- Each compound has a free-text notes field — reconstitution steps, storage instructions,
+  prescriber notes, anything worth keeping handy. A short preview shows on the dashboard row when
+  a compound has notes, and they're included in the full report too.
 - Optional 6pm email reminder on any day a dose is due, free via your own email account (needs
   GitHub sync — see below).
+- A full metrics report, also exportable as a real PDF with no external dependency: overview
+  counts (overdue/due today/on track), and per-compound stats — total doses logged, first/last
+  logged dates, average interval between doses, and injection-site usage breakdown, plus an
+  overall site-usage summary across every compound. A filter panel lets you narrow it down before
+  generating: pick which sections to include, which compounds to cover, a date range, and whether
+  to fold in archived entries.
 - Export/import a JSON backup — useful before clearing browser data or moving to a new device/browser.
 
 ## Hosting it on GitHub Pages
