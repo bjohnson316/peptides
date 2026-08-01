@@ -363,7 +363,7 @@
     weekly:      { label: "Weekly",                 days: 7  },
     biweekly:    { label: "Every 2 weeks",          days: 14 },
     cycle5_2:    { label: "5 days on, 2 off",       cycle: true, onDays: 5, cycleLength: 7 },
-    monthOnOff:  { label: "1 month on, 1 off",      monthCycle: true, onMonths: 1, offMonths: 1 },
+    monthOnOff:  { label: "1 month on, 1 off",      cycle: true, onDays: 30, cycleLength: 60 },
     custom:      { label: "Custom",                 custom: true }
   };
 
@@ -564,33 +564,11 @@
   }
 
   function nextDueForCycle(compound, last){
-    let d = startOfDay(last.ts) + DAY_MS;
-    for(let i=0;i<14;i++){
-      if(isOnDay(compound, d)) return d;
-      d += DAY_MS;
-    }
-    return d;
-  }
-
-  function monthsBetween(anchorTs, ts){
-    const a = new Date(anchorTs);
-    const b = new Date(ts);
-    return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  }
-
-  function isOnMonth(compound, dayStartTs){
     const cfg = FREQUENCIES[compound.frequency];
-    const anchor = compound.cycleAnchor || dayStartTs;
-    const diff = monthsBetween(anchor, dayStartTs);
-    const cycleLen = cfg.onMonths + cfg.offMonths;
-    const pos = ((diff % cycleLen) + cycleLen) % cycleLen;
-    return pos < cfg.onMonths;
-  }
-
-  function nextDueForMonthCycle(compound, last){
     let d = startOfDay(last.ts) + DAY_MS;
-    for(let i=0;i<400;i++){ // comfortably covers a full off-month even at 31 days
-      if(isOnMonth(compound, d)) return d;
+    const searchLimit = cfg.cycleLength + 2; // always enough to clear one full off-stretch
+    for(let i=0;i<searchLimit;i++){
+      if(isOnDay(compound, d)) return d;
       d += DAY_MS;
     }
     return d;
@@ -601,7 +579,6 @@
     if(!last) return null;
     const cfg = FREQUENCIES[compound.frequency];
     if(cfg.cycle) return nextDueForCycle(compound, last);
-    if(cfg.monthCycle) return nextDueForMonthCycle(compound, last);
     if(cfg.custom) return last.ts + (compound.customDays || 1) * DAY_MS;
     return last.ts + cfg.days * DAY_MS;
   }
@@ -1148,7 +1125,7 @@
       <div class="field" id="e-anchor-wrap" style="display:${(c.frequency==='cycle5_2'||c.frequency==='monthOnOff') ? 'block':'none'};">
         <label for="e-anchor" id="e-anchor-label">Cycle start (first "on" day)</label>
         <input type="date" id="e-anchor" value="${c.cycleAnchor ? toDateInputValue(c.cycleAnchor) : toDateInputValue(Date.now())}">
-        <div class="hint" id="e-anchor-hint">${c.frequency==='monthOnOff' ? "1 month on from this date, then 1 month off, repeating." : "5 on-days from this date, then 2 off, repeating."}</div>
+        <div class="hint" id="e-anchor-hint">${c.frequency==='monthOnOff' ? "30 days on from this date, then 30 days off, repeating." : "5 on-days from this date, then 2 off, repeating."}</div>
       </div>
       <div class="field" id="e-custom-wrap" style="display:${c.frequency==='custom' ? 'block':'none'};">
         <label for="e-custom-days">Every how many days</label>
@@ -1225,7 +1202,7 @@
       btn.classList.add("active");
       document.getElementById("e-anchor-wrap").style.display = (selectedFreq === "cycle5_2" || selectedFreq === "monthOnOff") ? "block" : "none";
       document.getElementById("e-anchor-hint").textContent = selectedFreq === "monthOnOff"
-        ? "1 month on from this date, then 1 month off, repeating."
+        ? "30 days on from this date, then 30 days off, repeating."
         : "5 on-days from this date, then 2 off, repeating.";
       document.getElementById("e-custom-wrap").style.display = selectedFreq === "custom" ? "block" : "none";
     });
@@ -1555,7 +1532,6 @@
       for(let guard=0; guard<3650; guard++){ // safety cap: ~10 years of daily gaps
         let dueDay;
         if(cfg.cycle) dueDay = nextDueForCycle(compound, virtualLast);
-        else if(cfg.monthCycle) dueDay = nextDueForMonthCycle(compound, virtualLast);
         else {
           const intervalDays = cfg.custom ? (compound.customDays || 1) : cfg.days;
           dueDay = startOfDay(virtualLast.ts) + intervalDays * DAY_MS;
