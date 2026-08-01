@@ -364,6 +364,7 @@
     biweekly:    { label: "Every 2 weeks",          days: 14 },
     cycle5_2:    { label: "5 days on, 2 off",       cycle: true, onDays: 5, cycleLength: 7 },
     monthOnOff:  { label: "1 month on, 1 off",      cycle: true, onDays: 30, cycleLength: 60 },
+    cycle8w4w:   { label: "8 weeks on, 4 off",      cycle: true, onDays: 56, cycleLength: 84 },
     custom:      { label: "Custom",                 custom: true }
   };
 
@@ -373,6 +374,13 @@
       return `Every ${n} day${n===1?"":"s"}`;
     }
     return FREQUENCIES[compound.frequency].label;
+  }
+
+  function cycleAnchorHint(freqKey){
+    const cfg = FREQUENCIES[freqKey];
+    if(!cfg || !cfg.cycle) return "";
+    const offDays = cfg.cycleLength - cfg.onDays;
+    return `${cfg.onDays} days on from this date, then ${offDays} off, repeating.`;
   }
 
   const DEFAULT_SITES = [
@@ -1122,10 +1130,10 @@
         <label>Frequency</label>
         <div class="chip-row" id="e-freq-row">${freqChips}</div>
       </div>
-      <div class="field" id="e-anchor-wrap" style="display:${(c.frequency==='cycle5_2'||c.frequency==='monthOnOff') ? 'block':'none'};">
+      <div class="field" id="e-anchor-wrap" style="display:${FREQUENCIES[c.frequency] && FREQUENCIES[c.frequency].cycle ? 'block':'none'};">
         <label for="e-anchor" id="e-anchor-label">Cycle start (first "on" day)</label>
         <input type="date" id="e-anchor" value="${c.cycleAnchor ? toDateInputValue(c.cycleAnchor) : toDateInputValue(Date.now())}">
-        <div class="hint" id="e-anchor-hint">${c.frequency==='monthOnOff' ? "30 days on from this date, then 30 days off, repeating." : "5 on-days from this date, then 2 off, repeating."}</div>
+        <div class="hint" id="e-anchor-hint">${cycleAnchorHint(c.frequency)}</div>
       </div>
       <div class="field" id="e-custom-wrap" style="display:${c.frequency==='custom' ? 'block':'none'};">
         <label for="e-custom-days">Every how many days</label>
@@ -1200,10 +1208,8 @@
       selectedFreq = btn.dataset.freq;
       document.querySelectorAll("#e-freq-row .chip").forEach(ch=>ch.classList.remove("active"));
       btn.classList.add("active");
-      document.getElementById("e-anchor-wrap").style.display = (selectedFreq === "cycle5_2" || selectedFreq === "monthOnOff") ? "block" : "none";
-      document.getElementById("e-anchor-hint").textContent = selectedFreq === "monthOnOff"
-        ? "30 days on from this date, then 30 days off, repeating."
-        : "5 on-days from this date, then 2 off, repeating.";
+      document.getElementById("e-anchor-wrap").style.display = (FREQUENCIES[selectedFreq] && FREQUENCIES[selectedFreq].cycle) ? "block" : "none";
+      document.getElementById("e-anchor-hint").textContent = cycleAnchorHint(selectedFreq);
       document.getElementById("e-custom-wrap").style.display = selectedFreq === "custom" ? "block" : "none";
     });
 
@@ -1241,7 +1247,7 @@
         c.doseUnit = document.getElementById("e-unit").value.trim();
       }
       c.frequency = selectedFreq;
-      if(selectedFreq === "cycle5_2" || selectedFreq === "monthOnOff"){
+      if(FREQUENCIES[selectedFreq] && FREQUENCIES[selectedFreq].cycle){
         const anchorVal = document.getElementById("e-anchor").value;
         c.cycleAnchor = anchorVal ? new Date(anchorVal + "T00:00:00").getTime() : startOfDay(Date.now());
       }
