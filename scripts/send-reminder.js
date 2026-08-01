@@ -28,6 +28,7 @@ const FREQUENCIES = {
   biweekly:   { days: 14 },
   cycle5_2:   { cycle: true, onDays: 5, cycleLength: 7 },
   monthOnOff: { cycle: true, onDays: 30, cycleLength: 60 },
+  cycle8w4w:  { cycle: true, onDays: 56, cycleLength: 84 },
   custom:     { custom: true }
 };
 
