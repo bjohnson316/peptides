@@ -146,6 +146,14 @@
     font-family:'IBM Plex Mono', monospace; font-size:11.5px;
     color: var(--ink-dim); margin-top: 3px;
   }
+  .dose-line{
+    font-family:'IBM Plex Mono', monospace; font-size:11.5px;
+    color: var(--ink-dim); margin-top: 3px;
+  }
+  .last-line{
+    font-family:'IBM Plex Mono', monospace; font-size:11.5px;
+    color: var(--ink-dim); margin-top: 3px;
+  }
   .status-text.overdue{ color: var(--red); }
   .status-text.today{ color: var(--amber); }
   .status-text.soon{ color: var(--ink-dim); }
@@ -678,10 +686,10 @@
           <div class="name">${escapeHtml(c.name)}</div>
           <div class="meta">
             <span>${freqLabel}</span>
-            ${doseStr ? `<span>${escapeHtml(doseStr)}</span>` : ""}
-            ${last ? `<span>last: ${fmtDate(last.ts)}</span>` : ""}
           </div>
           ${(c.doseMode==='calculated' && c.prescribedUnits != null) ? `<div class="units-line">${escapeHtml(String(c.prescribedUnits))} units (U-100 syringe)</div>` : ""}
+          ${doseStr ? `<div class="dose-line">${escapeHtml(doseStr)}</div>` : ""}
+          ${last ? `<div class="last-line">last: ${fmtDate(last.ts)}</div>` : ""}
           <div class="status-text ${s.key}">${s.label}</div>
           ${c.notes ? `<div class="notes-preview" title="${escapeHtml(c.notes)}">Instructions: ${escapeHtml(pdfTruncate(c.notes, 60))}</div>` : ""}
         </div>
