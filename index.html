@@ -1639,6 +1639,7 @@
         name: c.name,
         frequency: frequencyLabel(c),
         dose: c.doseAmount ? `${c.doseAmount}${c.doseUnit||""}` : "Not set",
+        units: (c.doseMode === "calculated" && c.prescribedUnits != null) ? `${c.prescribedUnits} units (U-100 syringe)` : "",
         status: statusFor(c).label,
         totalLogs: cLogs.length,
         activeLogs: active,
@@ -1737,9 +1738,12 @@
         line("No compounds match the current filters.", { indent:true });
       }
       report.compoundRows.forEach(cr=>{
-        ensureRoom(8);
+        ensureRoom(9);
         line(cr.name, { bold:true, size:10.5, gapAfter:14 });
         line(`Frequency: ${cr.frequency}    Dose: ${cr.dose}`, { indent:true });
+        if(cr.units){
+          line(`Units: ${cr.units}`, { indent:true });
+        }
         line(`Status: ${cr.status}`, { indent:true });
         line(`Doses logged: ${cr.totalLogs} (${cr.activeLogs} active, ${cr.archivedLogs} archived)`, { indent:true });
         line(`First logged: ${cr.firstLogged}    Last logged: ${cr.lastLogged}`, { indent:true });
