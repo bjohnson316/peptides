@@ -29,6 +29,7 @@ const FREQUENCIES = {
   cycle5_2:   { cycle: true, onDays: 5, cycleLength: 7 },
   monthOnOff: { cycle: true, onDays: 30, cycleLength: 60 },
   cycle8w4w:  { cycle: true, onDays: 56, cycleLength: 84 },
+  weekdays:   { weekdays: true },
   custom:     { custom: true }
 };
 
@@ -71,11 +72,23 @@ function nextDueForCycle(compound, last) {
   return d;
 }
 
+function nextDueForWeekdays(compound, last) {
+  const days = compound.weekdays || [];
+  if (days.length === 0) return null; // not configured yet
+  let d = localDayKey(last.ts, TIMEZONE) + DAY_MS;
+  for (let i = 0; i < 8; i++) { // at most a week needed to hit any selected weekday
+    if (days.includes(new Date(d).getUTCDay())) return d;
+    d += DAY_MS;
+  }
+  return d;
+}
+
 function nextDueFor(compound, logs) {
   const last = lastLogFor(logs, compound.id);
   if (!last) return null; // never logged yet — nothing to remind about
   const cfg = FREQUENCIES[compound.frequency];
   if (cfg.cycle) return nextDueForCycle(compound, last);
+  if (cfg.weekdays) return nextDueForWeekdays(compound, last);
   const intervalDays = cfg.custom ? (compound.customDays || 1) : cfg.days;
   // interval types: advance by N calendar days in the reminder's timezone,
   // not N*24h of raw elapsed time (which can drift a day near DST changes)
