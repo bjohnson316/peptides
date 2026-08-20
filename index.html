@@ -377,13 +377,21 @@
     cycle5_2:    { label: "5 days on, 2 off",       cycle: true, onDays: 5, cycleLength: 7 },
     monthOnOff:  { label: "1 month on, 1 off",      cycle: true, onDays: 30, cycleLength: 60 },
     cycle8w4w:   { label: "8 weeks on, 4 off",      cycle: true, onDays: 56, cycleLength: 84 },
+    weekdays:    { label: "Specific days of week",  weekdays: true },
     custom:      { label: "Custom",                 custom: true }
   };
+
+  const WEEKDAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
   function frequencyLabel(compound){
     if(compound.frequency === "custom"){
       const n = compound.customDays || 1;
       return `Every ${n} day${n===1?"":"s"}`;
+    }
+    if(compound.frequency === "weekdays"){
+      const days = compound.weekdays || [];
+      if(days.length === 0) return "Specific days (none set)";
+      return days.slice().sort((a,b)=>a-b).map(d=>WEEKDAY_NAMES[d]).join(", ");
     }
     return FREQUENCIES[compound.frequency].label;
   }
@@ -594,11 +602,23 @@
     return d;
   }
 
+  function nextDueForWeekdays(compound, last){
+    const days = compound.weekdays || [];
+    if(days.length === 0) return null; // not configured yet
+    let d = startOfDay(last.ts) + DAY_MS;
+    for(let i=0;i<8;i++){ // at most a week needed to hit any selected weekday
+      if(days.includes(new Date(d).getDay())) return d;
+      d += DAY_MS;
+    }
+    return d;
+  }
+
   function nextDueFor(compound){
     const last = lastLogFor(compound.id);
     if(!last) return null;
     const cfg = FREQUENCIES[compound.frequency];
     if(cfg.cycle) return nextDueForCycle(compound, last);
+    if(cfg.weekdays) return nextDueForWeekdays(compound, last);
     if(cfg.custom) return last.ts + (compound.customDays || 1) * DAY_MS;
     return last.ts + cfg.days * DAY_MS;
   }
@@ -1153,6 +1173,15 @@
         <input type="number" id="e-custom-days" min="1" step="1" value="${c.customDays || 3}">
         <div class="hint">Next dose is due this many days after the last one you logged.</div>
       </div>
+      <div class="field" id="e-weekdays-wrap" style="display:${c.frequency==='weekdays' ? 'block':'none'};">
+        <label>Days of the week</label>
+        <div class="chip-row" id="e-weekdays-row">
+          ${WEEKDAY_NAMES.map((name, idx)=>
+            `<button type="button" class="chip ${(c.weekdays||[]).includes(idx)?'active':''}" data-weekday="${idx}">${name}</button>`
+          ).join("")}
+        </div>
+        <div class="hint">Tap to toggle each day on or off — mix and match any combination, like Mon/Wed/Fri.</div>
+      </div>
       <div class="field">
         <label for="e-sites">Injection sites (rotation, comma-separated)</label>
         <input type="text" id="e-sites" value="${escapeHtml((c.sites||[]).join(", "))}">
@@ -1173,6 +1202,7 @@
 
     let selectedFreq = c.frequency;
     let selectedDoseMode = c.doseMode === "calculated" ? "calculated" : "manual";
+    let selectedWeekdays = new Set(c.weekdays || []);
 
     function formatMg(n){
       if(!isFinite(n)) return "";
@@ -1224,6 +1254,20 @@
       document.getElementById("e-anchor-wrap").style.display = (FREQUENCIES[selectedFreq] && FREQUENCIES[selectedFreq].cycle) ? "block" : "none";
       document.getElementById("e-anchor-hint").textContent = cycleAnchorHint(selectedFreq);
       document.getElementById("e-custom-wrap").style.display = selectedFreq === "custom" ? "block" : "none";
+      document.getElementById("e-weekdays-wrap").style.display = selectedFreq === "weekdays" ? "block" : "none";
+    });
+
+    document.getElementById("e-weekdays-row").addEventListener("click", (e)=>{
+      const btn = e.target.closest("[data-weekday]");
+      if(!btn) return;
+      const idx = parseInt(btn.dataset.weekday, 10);
+      if(selectedWeekdays.has(idx)){
+        selectedWeekdays.delete(idx);
+        btn.classList.remove("active");
+      } else {
+        selectedWeekdays.add(idx);
+        btn.classList.add("active");
+      }
     });
 
     document.getElementById("e-cancel").addEventListener("click", closeModal);
@@ -1267,6 +1311,13 @@
       if(selectedFreq === "custom"){
         const n = parseInt(document.getElementById("e-custom-days").value, 10);
         c.customDays = (Number.isFinite(n) && n >= 1) ? n : 3;
+      }
+      if(selectedFreq === "weekdays"){
+        if(selectedWeekdays.size === 0){
+          toast("Pick at least one day of the week");
+          return;
+        }
+        c.weekdays = Array.from(selectedWeekdays).sort((a,b)=>a-b);
       }
       c.sites = document.getElementById("e-sites").value.split(",").map(s=>s.trim()).filter(Boolean);
       if(c.sites.length === 0) c.sites = DEFAULT_SITES.slice(0,2);
@@ -1551,11 +1602,12 @@
       for(let guard=0; guard<3650; guard++){ // safety cap: ~10 years of daily gaps
         let dueDay;
         if(cfg.cycle) dueDay = nextDueForCycle(compound, virtualLast);
+        else if(cfg.weekdays) dueDay = nextDueForWeekdays(compound, virtualLast);
         else {
           const intervalDays = cfg.custom ? (compound.customDays || 1) : cfg.days;
           dueDay = startOfDay(virtualLast.ts) + intervalDays * DAY_MS;
         }
-        if(dueDay >= boundary) break;
+        if(dueDay === null || dueDay >= boundary) break;
         missed.push(dueDay);
         virtualLast = { ts: dueDay };
       }

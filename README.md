@@ -8,9 +8,12 @@ everything is stored in your browser's local storage on whatever device you use 
 
 - Tracks any number of compounds, each with its own dose, frequency, and injection-site rotation.
 - Frequencies: daily, weekly, every 2 weeks, a 5-days-on/2-days-off cycle, a 30-days-on/30-days-off
-  cycle, an 8-weeks-on/4-weeks-off cycle, or a custom "every N days" interval you set yourself.
-  All the cycle options take a start date and repeat automatically from there on a fixed rolling
-  day count, so they stay consistent no matter where in the calendar your start date happens to fall.
+  cycle, an 8-weeks-on/4-weeks-off cycle, specific days of the week (pick any combination, like
+  Mon/Wed/Fri), or a custom "every N days" interval you set yourself. All the cycle options take a
+  start date and repeat automatically from there on a fixed rolling day count, so they stay
+  consistent no matter where in the calendar your start date happens to fall. You can change a
+  compound's frequency at any time — e.g. run Mon/Wed/Fri for a few weeks, then edit it and switch
+  to Weekly whenever you're ready; the next-due calculation just picks up from your last logged dose.
 - Shows an at-a-glance status per compound: overdue, due today, due tomorrow, or on track,
   calculated from your last logged dose.
 - Suggests the next injection site in rotation each time you log a dose.
