@@ -32,6 +32,14 @@ everything is stored in your browser's local storage on whatever device you use 
 - Each compound has a free-text notes field — reconstitution steps, storage instructions,
   prescriber notes, anything worth keeping handy. A short preview shows on the dashboard row when
   a compound has notes, and they're included in the full report too.
+- A separate **Blood Tests** section, independent of any compound: log when you had one done,
+  optional notes, and an optional results document (PDF or image) attached directly to that
+  entry. Set how often you want testing to repeat (every N days) and it shows the same
+  overdue/due-today/on-track status as compounds do, calculated from your most recent test.
+  Tap any past entry to view/download its attached file, replace it, or delete the entry. The
+  file is stored as part of your data (same as everything else), so keep individual files to a
+  few MB — a confirmation prompt warns you before saving anything large, and files over 8MB are
+  rejected outright to protect local storage and GitHub sync.
 - Optional 6pm email reminder on any day a dose is due, free via your own email account (needs
   GitHub sync — see below).
 - A full metrics report, also exportable as a real PDF with no external dependency: overview

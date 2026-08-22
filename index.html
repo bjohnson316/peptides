@@ -214,6 +214,19 @@
   .log-entry .what{ color: var(--ink-dim); }
   .log-entry .site{ font-family:'IBM Plex Mono', monospace; font-size:11px; color: var(--ink-faint); }
   .empty{ color: var(--ink-faint); font-size:13px; padding: 18px 4px; text-align:center; }
+  .bt-entry{
+    display:flex; gap:12px; align-items:flex-start; justify-content:space-between;
+    padding: 10px 4px; border-bottom: 1px solid var(--line);
+    font-size: 13px; cursor:pointer;
+  }
+  .bt-entry:last-child{ border-bottom:none; }
+  .bt-entry .ts{ font-family:'IBM Plex Mono', monospace; color: var(--ink); font-weight:600; font-size:13px; }
+  .bt-entry .bt-note{ color: var(--ink-dim); font-size:12px; margin-top:2px; }
+  .bt-file-badge{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; color: var(--teal);
+    background: var(--teal-dim); border:1px solid #2a5b52; border-radius:6px;
+    padding:4px 8px; white-space:nowrap; align-self:center;
+  }
 
   /* ---------- footer / data tools ---------- */
   footer{
@@ -319,6 +332,15 @@
   <button class="add-row" id="btn-add-compound" style="margin-top:10px;">+ Add compound</button>
 
   <div class="section-head">
+    <h2>Blood Tests</h2>
+    <div class="rule"></div>
+    <button class="btn ghost" id="btn-bt-settings" aria-label="Blood test settings">⋯</button>
+  </div>
+  <div class="rows" id="bt-status-row"></div>
+  <button class="add-row" id="btn-log-bt" style="margin-top:10px;">+ Log blood test</button>
+  <div class="log-list" id="bt-list" style="margin-top:14px;"></div>
+
+  <div class="section-head">
     <h2>History</h2>
     <div class="rule"></div>
   </div>
@@ -410,10 +432,17 @@
 
   function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 
+  function ensureShape(s){
+    if(!s.bloodTests) s.bloodTests = { intervalDays: 90, entries: [] };
+    if(!Array.isArray(s.bloodTests.entries)) s.bloodTests.entries = [];
+    if(!s.bloodTests.intervalDays) s.bloodTests.intervalDays = 90;
+    return s;
+  }
+
   function loadData(){
     try{
       const raw = localStorage.getItem(STORAGE_KEY);
-      if(raw) return JSON.parse(raw);
+      if(raw) return ensureShape(JSON.parse(raw));
     }catch(e){ console.error("Load failed", e); }
     return seedData();
   }
@@ -431,7 +460,8 @@
         { id: uid(), name: "Ipamorelin / CJC-1295", doseAmount: "", doseUnit: "mcg", frequency: "daily",
           sites: ["Left abdomen","Right abdomen"], siteIndex: 0 }
       ],
-      logs: []
+      logs: [],
+      bloodTests: { intervalDays: 90, entries: [] }
     };
   }
 
@@ -555,7 +585,7 @@
       }
       const parsed = JSON.parse(content);
       if(parsed && Array.isArray(parsed.compounds) && Array.isArray(parsed.logs)){
-        state = parsed;
+        state = ensureShape(parsed);
         saveData();
         render();
       }
@@ -640,6 +670,34 @@
     return { key:"ontrack", label: `Due in ${daysUntil} days`, due };
   }
 
+  // ---------- blood tests ----------
+  function bloodTestEntries(){
+    return state.bloodTests.entries.slice().sort((a,b)=> b.ts - a.ts);
+  }
+  function lastBloodTest(){
+    const entries = bloodTestEntries();
+    return entries.length ? entries[0] : null;
+  }
+  function nextBloodTestDue(){
+    const last = lastBloodTest();
+    if(!last) return null;
+    return last.ts + (state.bloodTests.intervalDays || 90) * DAY_MS;
+  }
+  function bloodTestStatus(){
+    const due = nextBloodTestDue();
+    if(due === null) return { key:"new", label:"No tests logged yet" };
+    const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+    const dueDay = new Date(due); dueDay.setHours(0,0,0,0);
+    const daysUntil = Math.round((dueDay - startOfToday) / DAY_MS);
+    if(daysUntil < 0){
+      const n = Math.abs(daysUntil);
+      return { key:"overdue", label: `Overdue by ${n} day${n===1?"":"s"}`, due };
+    }
+    if(daysUntil === 0) return { key:"today", label: "Due today", due };
+    if(daysUntil === 1) return { key:"soon", label: "Due tomorrow", due };
+    return { key:"ontrack", label: `Due in ${daysUntil} days`, due };
+  }
+
   function fmtDate(ts){
     return new Date(ts).toLocaleDateString(undefined, { month:"short", day:"numeric" });
   }
@@ -662,10 +720,13 @@
   const logListEl = document.getElementById("log-list");
   const historyFilterEl = document.getElementById("history-filter");
   const compoundCountEl = document.getElementById("compound-count");
+  const btStatusRowEl = document.getElementById("bt-status-row");
+  const btListEl = document.getElementById("bt-list");
 
   function render(){
     renderMetrics();
     renderRows();
+    renderBloodTests();
     renderHistoryFilter();
     renderHistory();
     saveData();
@@ -728,6 +789,46 @@
       btn.addEventListener("click", ()=> openEditModal(btn.dataset.edit));
     });
   }
+
+  function renderBloodTests(){
+    const s = bloodTestStatus();
+    const ledClass = s.key === "overdue" ? "red" : s.key === "today" ? "amber pulse" : s.key === "new" ? "grey" : "";
+    const last = lastBloodTest();
+    const intervalDays = state.bloodTests.intervalDays || 90;
+
+    btStatusRowEl.innerHTML = `
+      <div class="row-card">
+        <div class="led ${ledClass}"></div>
+        <div class="row-main">
+          <div class="name">Next blood test</div>
+          <div class="meta"><span>Every ${intervalDays} days</span></div>
+          ${last ? `<div class="last-line">last: ${fmtDate(last.ts)}</div>` : ""}
+          <div class="status-text ${s.key}">${s.label}</div>
+        </div>
+      </div>
+    `;
+
+    const entries = bloodTestEntries();
+    btListEl.innerHTML = "";
+    if(entries.length === 0){
+      btListEl.innerHTML = `<div class="empty">No blood tests logged yet.</div>`;
+      return;
+    }
+    entries.forEach(entry=>{
+      const row = document.createElement("div");
+      row.className = "bt-entry";
+      row.innerHTML = `
+        <div>
+          <div class="ts">${fmtDate(entry.ts)}</div>
+          ${entry.notes ? `<div class="bt-note">${escapeHtml(pdfTruncate(entry.notes, 80))}</div>` : ""}
+        </div>
+        ${entry.fileName ? `<div class="bt-file-badge">📄 ${escapeHtml(pdfTruncate(entry.fileName, 22))}</div>` : ""}
+      `;
+      row.addEventListener("click", ()=> openEditBloodTestModal(entry.id));
+      btListEl.appendChild(row);
+    });
+  }
+
 
   function renderHistoryFilter(){
     const current = historyFilterEl.value || "all";
@@ -1398,7 +1499,7 @@
           const { filename, content } = await ghFetchGist(cfg.gistId);
           const parsed = JSON.parse(content);
           if(parsed && Array.isArray(parsed.compounds) && Array.isArray(parsed.logs)){
-            state = parsed;
+            state = ensureShape(parsed);
             cfg.filename = filename;
             setGithubConfig(cfg);
             saveData();
@@ -1431,7 +1532,7 @@
             const parsed = JSON.parse(content);
             if(parsed && Array.isArray(parsed.compounds) && Array.isArray(parsed.logs)){
               if(confirm("Load the data already in this Gist? Cancel to keep what's shown here and push it up instead.")){
-                state = parsed;
+                state = ensureShape(parsed);
                 loaded = true;
               }
             }
@@ -1458,6 +1559,200 @@
 
   document.getElementById("btn-add-compound").addEventListener("click", ()=> openEditModal(null));
   document.getElementById("btn-github").addEventListener("click", openGithubSettingsModal);
+
+  // ---------- blood tests: file handling + modals ----------
+  const BT_FILE_WARN_BYTES = 3 * 1024 * 1024;   // soft warning past this size
+  const BT_FILE_MAX_BYTES = 8 * 1024 * 1024;    // hard refuse past this size
+
+  function readFileAsDataUrl(file){
+    return new Promise((resolve, reject)=>{
+      const reader = new FileReader();
+      reader.onload = ()=> resolve(reader.result);
+      reader.onerror = ()=> reject(new Error("Couldn't read that file"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function openBloodTestSettingsModal(){
+    openModal(`
+      <h3>Blood test schedule</h3>
+      <div class="field">
+        <label for="bt-interval">Test every how many days</label>
+        <input type="number" id="bt-interval" min="1" step="1" value="${state.bloodTests.intervalDays || 90}">
+        <div class="hint">Used to calculate "next test due" from your most recently logged test.</div>
+      </div>
+      <div class="modal-actions">
+        <div></div>
+        <div class="right">
+          <button class="btn ghost" id="bt-settings-cancel" type="button">Cancel</button>
+          <button class="btn primary" id="bt-settings-save" type="button">Save</button>
+        </div>
+      </div>
+    `);
+    document.getElementById("bt-settings-cancel").addEventListener("click", closeModal);
+    document.getElementById("bt-settings-save").addEventListener("click", ()=>{
+      const n = parseInt(document.getElementById("bt-interval").value, 10);
+      state.bloodTests.intervalDays = (Number.isFinite(n) && n >= 1) ? n : 90;
+      closeModal();
+      render();
+      persist();
+      toast("Schedule updated");
+    });
+  }
+
+  function openLogBloodTestModal(){
+    const nowLocal = toDateInputValue(Date.now());
+    openModal(`
+      <h3>Log blood test</h3>
+      <div class="field">
+        <label for="bt-date">Date</label>
+        <input type="date" id="bt-date" value="${nowLocal}">
+      </div>
+      <div class="field">
+        <label for="bt-notes">Notes (optional)</label>
+        <textarea id="bt-notes" placeholder="Panel type, lab, anything worth remembering"></textarea>
+      </div>
+      <div class="field">
+        <label for="bt-file">Test results document (optional)</label>
+        <input type="file" id="bt-file" accept=".pdf,image/*">
+        <div class="hint">PDF or image. Stored directly in your data — keep it under a few MB so backups and GitHub sync stay quick.</div>
+      </div>
+      <div class="modal-actions">
+        <div></div>
+        <div class="right">
+          <button class="btn ghost" id="bt-log-cancel" type="button">Cancel</button>
+          <button class="btn primary" id="bt-log-save" type="button">Save</button>
+        </div>
+      </div>
+    `);
+    document.getElementById("bt-log-cancel").addEventListener("click", closeModal);
+    document.getElementById("bt-log-save").addEventListener("click", async ()=>{
+      const dateVal = document.getElementById("bt-date").value;
+      const ts = dateVal ? new Date(dateVal + "T00:00:00").getTime() : Date.now();
+      const notes = document.getElementById("bt-notes").value.trim();
+      const fileInput = document.getElementById("bt-file");
+      const file = fileInput.files[0];
+
+      const entry = { id: uid(), ts, notes };
+
+      if(file){
+        if(file.size > BT_FILE_MAX_BYTES){
+          toast("That file is too large (over 8MB) — try a smaller scan or export");
+          return;
+        }
+        if(file.size > BT_FILE_WARN_BYTES){
+          if(!confirm(`This file is ${(file.size/1024/1024).toFixed(1)}MB — it'll be stored directly in your data and will slow down GitHub sync and backups. Continue?`)) return;
+        }
+        try{
+          entry.fileData = await readFileAsDataUrl(file);
+          entry.fileName = file.name;
+          entry.fileType = file.type;
+        }catch(err){
+          toast("Couldn't attach that file");
+          return;
+        }
+      }
+
+      state.bloodTests.entries.push(entry);
+      closeModal();
+      render();
+      persist();
+      toast("Blood test logged");
+    });
+  }
+
+  function openEditBloodTestModal(entryId){
+    const entry = state.bloodTests.entries.find(e=> e.id === entryId);
+    if(!entry) return;
+    openModal(`
+      <h3>Edit blood test</h3>
+      <div class="field">
+        <label for="bt-edit-date">Date</label>
+        <input type="date" id="bt-edit-date" value="${toDateInputValue(entry.ts)}">
+      </div>
+      <div class="field">
+        <label for="bt-edit-notes">Notes</label>
+        <textarea id="bt-edit-notes">${escapeHtml(entry.notes || "")}</textarea>
+      </div>
+      <div class="field">
+        <label>Test results document</label>
+        ${entry.fileName ? `
+          <div class="check-row" style="justify-content:space-between;">
+            <a href="${entry.fileData}" download="${escapeHtml(entry.fileName)}" target="_blank" class="btn small">📄 ${escapeHtml(pdfTruncate(entry.fileName, 28))} — view/download</a>
+          </div>
+          <button type="button" class="btn ghost small" id="bt-remove-file" style="margin-top:6px;">Remove attached file</button>
+        ` : `<div class="hint">No file attached.</div>`}
+        <input type="file" id="bt-edit-file" accept=".pdf,image/*" style="margin-top:10px;">
+        <div class="hint">Choosing a new file here replaces the current one.</div>
+      </div>
+      <div class="modal-actions">
+        <div><button class="btn danger small" id="bt-delete" type="button">Delete entry</button></div>
+        <div class="right">
+          <button class="btn ghost" id="bt-edit-cancel" type="button">Cancel</button>
+          <button class="btn primary" id="bt-edit-save" type="button">Save</button>
+        </div>
+      </div>
+    `);
+
+    let removeFile = false;
+    document.getElementById("bt-edit-cancel").addEventListener("click", closeModal);
+
+    const removeBtn = document.getElementById("bt-remove-file");
+    if(removeBtn){
+      removeBtn.addEventListener("click", ()=>{
+        removeFile = true;
+        removeBtn.textContent = "File will be removed on save";
+        removeBtn.disabled = true;
+      });
+    }
+
+    document.getElementById("bt-delete").addEventListener("click", ()=>{
+      if(!confirm("Delete this blood test entry? This can't be undone.")) return;
+      state.bloodTests.entries = state.bloodTests.entries.filter(e=> e.id !== entryId);
+      closeModal();
+      render();
+      persist();
+      toast("Entry deleted");
+    });
+
+    document.getElementById("bt-edit-save").addEventListener("click", async ()=>{
+      const dateVal = document.getElementById("bt-edit-date").value;
+      entry.ts = dateVal ? new Date(dateVal + "T00:00:00").getTime() : entry.ts;
+      entry.notes = document.getElementById("bt-edit-notes").value.trim();
+
+      const fileInput = document.getElementById("bt-edit-file");
+      const file = fileInput.files[0];
+      if(file){
+        if(file.size > BT_FILE_MAX_BYTES){
+          toast("That file is too large (over 8MB) — try a smaller scan or export");
+          return;
+        }
+        if(file.size > BT_FILE_WARN_BYTES){
+          if(!confirm(`This file is ${(file.size/1024/1024).toFixed(1)}MB — it'll be stored directly in your data and will slow down GitHub sync and backups. Continue?`)) return;
+        }
+        try{
+          entry.fileData = await readFileAsDataUrl(file);
+          entry.fileName = file.name;
+          entry.fileType = file.type;
+        }catch(err){
+          toast("Couldn't attach that file");
+          return;
+        }
+      } else if(removeFile){
+        delete entry.fileData;
+        delete entry.fileName;
+        delete entry.fileType;
+      }
+
+      closeModal();
+      render();
+      persist();
+      toast("Entry updated");
+    });
+  }
+
+  document.getElementById("btn-log-bt").addEventListener("click", openLogBloodTestModal);
+  document.getElementById("btn-bt-settings").addEventListener("click", openBloodTestSettingsModal);
 
   // ---------- export history to PDF (hand-built PDF bytes, zero external dependencies) ----------
   function pdfEscapeText(str){
@@ -1998,7 +2293,7 @@
         const parsed = JSON.parse(reader.result);
         if(!parsed.compounds || !parsed.logs) throw new Error("Missing fields");
         if(!confirm("This replaces all current data with the backup file. Continue?")) return;
-        state = parsed;
+        state = ensureShape(parsed);
         render();
         persist();
         toast("Backup imported");
