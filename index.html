@@ -338,7 +338,10 @@
   </div>
   <div class="rows" id="bt-status-row"></div>
   <button class="add-row" id="btn-log-bt" style="margin-top:10px;">+ Log blood test</button>
-  <div class="log-list" id="bt-list" style="margin-top:14px;"></div>
+  <div class="history-controls" style="margin-top:14px; margin-bottom:0;">
+    <label class="archived-toggle"><input type="checkbox" id="bt-show-archived-toggle"> Show archived</label>
+  </div>
+  <div class="log-list" id="bt-list" style="margin-top:8px;"></div>
 
   <div class="section-head">
     <h2>History</h2>
@@ -674,6 +677,10 @@
   function bloodTestEntries(){
     return state.bloodTests.entries.slice().sort((a,b)=> b.ts - a.ts);
   }
+  let btShowArchived = false;
+  function visibleBloodTestEntries(){
+    return bloodTestEntries().filter(e=> btShowArchived ? !!e.archived : !e.archived);
+  }
   function lastBloodTest(){
     const entries = bloodTestEntries();
     return entries.length ? entries[0] : null;
@@ -808,10 +815,10 @@
       </div>
     `;
 
-    const entries = bloodTestEntries();
+    const entries = visibleBloodTestEntries();
     btListEl.innerHTML = "";
     if(entries.length === 0){
-      btListEl.innerHTML = `<div class="empty">No blood tests logged yet.</div>`;
+      btListEl.innerHTML = `<div class="empty">${btShowArchived ? "No archived blood tests." : "No blood tests logged yet."}</div>`;
       return;
     }
     entries.forEach(entry=>{
@@ -1633,7 +1640,7 @@
       const fileInput = document.getElementById("bt-file");
       const file = fileInput.files[0];
 
-      const entry = { id: uid(), ts, notes };
+      const entry = { id: uid(), ts, notes, archived: false };
 
       if(file){
         if(file.size > BT_FILE_MAX_BYTES){
@@ -1686,7 +1693,10 @@
         <div class="hint">Choosing a new file here replaces the current one.</div>
       </div>
       <div class="modal-actions">
-        <div><button class="btn danger small" id="bt-delete" type="button">Delete entry</button></div>
+        <div>
+          <button class="btn danger small" id="bt-delete" type="button">Delete entry</button>
+          <button class="btn small" id="bt-archive-toggle" type="button">${entry.archived ? "Unarchive" : "Archive"}</button>
+        </div>
         <div class="right">
           <button class="btn ghost" id="bt-edit-cancel" type="button">Cancel</button>
           <button class="btn primary" id="bt-edit-save" type="button">Save</button>
@@ -1696,6 +1706,14 @@
 
     let removeFile = false;
     document.getElementById("bt-edit-cancel").addEventListener("click", closeModal);
+
+    document.getElementById("bt-archive-toggle").addEventListener("click", ()=>{
+      entry.archived = !entry.archived;
+      closeModal();
+      render();
+      persist();
+      toast(entry.archived ? "Entry archived" : "Entry unarchived");
+    });
 
     const removeBtn = document.getElementById("bt-remove-file");
     if(removeBtn){
@@ -1753,6 +1771,10 @@
 
   document.getElementById("btn-log-bt").addEventListener("click", openLogBloodTestModal);
   document.getElementById("btn-bt-settings").addEventListener("click", openBloodTestSettingsModal);
+  document.getElementById("bt-show-archived-toggle").addEventListener("change", (e)=>{
+    btShowArchived = e.target.checked;
+    renderBloodTests();
+  });
 
   // ---------- export history to PDF (hand-built PDF bytes, zero external dependencies) ----------
   function pdfEscapeText(str){

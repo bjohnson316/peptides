@@ -39,7 +39,10 @@ everything is stored in your browser's local storage on whatever device you use 
   Tap any past entry to view/download its attached file, replace it, or delete the entry. The
   file is stored as part of your data (same as everything else), so keep individual files to a
   few MB — a confirmation prompt warns you before saving anything large, and files over 8MB are
-  rejected outright to protect local storage and GitHub sync.
+  rejected outright to protect local storage and GitHub sync. Entries (and their attached files)
+  can be archived to tidy up the list, same idea as archiving in the main history — a "Show
+  archived" toggle brings them back into view, and archiving never affects the due-date
+  calculation, which still counts your true most recent test either way.
 - Optional 6pm email reminder on any day a dose is due, free via your own email account (needs
   GitHub sync — see below).
 - A full metrics report, also exportable as a real PDF with no external dependency: overview
