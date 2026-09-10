@@ -524,7 +524,21 @@
     const filenames = Object.keys(data.files || {});
     if(filenames.length === 0) throw new Error("That gist has no files in it");
     const filename = filenames[0];
-    return { filename, content: data.files[filename].content };
+    const fileMeta = data.files[filename];
+
+    if(fileMeta.truncated){
+      // GitHub's gist API truncates the content field for large files (roughly past 1MB) —
+      // the raw_url always returns the complete, untruncated file regardless of size.
+      const cfg = getGithubConfig();
+      const rawRes = await fetch(fileMeta.raw_url, {
+        headers: (cfg && cfg.token) ? { "Authorization": `Bearer ${cfg.token}` } : {}
+      });
+      if(!rawRes.ok) throw new Error(`Couldn't fetch the full file (${rawRes.status}) — it may be too large`);
+      const fullContent = await rawRes.text();
+      return { filename, content: fullContent };
+    }
+
+    return { filename, content: fileMeta.content };
   }
 
   async function ghUpdateGist(gistId, filename, content){
