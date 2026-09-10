@@ -527,15 +527,18 @@
     const fileMeta = data.files[filename];
 
     if(fileMeta.truncated){
-      // GitHub's gist API truncates the content field for large files (roughly past 1MB) —
-      // the raw_url always returns the complete, untruncated file regardless of size.
-      const cfg = getGithubConfig();
-      const rawRes = await fetch(fileMeta.raw_url, {
-        headers: (cfg && cfg.token) ? { "Authorization": `Bearer ${cfg.token}` } : {}
-      });
-      if(!rawRes.ok) throw new Error(`Couldn't fetch the full file (${rawRes.status}) — it may be too large`);
-      const fullContent = await rawRes.text();
-      return { filename, content: fullContent };
+      // GitHub's gist API truncates the content field for files over ~1MB. Its raw_url would
+      // normally have the full content, but GitHub's raw-file host rejects cross-origin
+      // requests for private gists (blocks the CORS preflight outright), so there's no way to
+      // fetch the untruncated content from browser JS. The real fix is keeping synced data
+      // under that size — see the blood test attachment limits.
+      throw new Error(
+        "Your synced data is too large for GitHub to return in full (over ~1MB) — this happens " +
+        "when blood test attachments push the total past GitHub's Gist size limit for reading. " +
+        "On a device that still has your full data locally, open the oversized attachment(s), " +
+        "remove or replace them with a smaller file, then use \"Push current data now\" to shrink " +
+        "the gist back down. Export/Import JSON backup has no such limit if you need to keep larger files."
+      );
     }
 
     return { filename, content: fileMeta.content };
@@ -1582,8 +1585,8 @@
   document.getElementById("btn-github").addEventListener("click", openGithubSettingsModal);
 
   // ---------- blood tests: file handling + modals ----------
-  const BT_FILE_WARN_BYTES = 3 * 1024 * 1024;   // soft warning past this size
-  const BT_FILE_MAX_BYTES = 8 * 1024 * 1024;    // hard refuse past this size
+  const BT_FILE_WARN_BYTES = 200 * 1024;   // soft warning past this size
+  const BT_FILE_MAX_BYTES = 500 * 1024;    // hard refuse past this size
 
   function readFileAsDataUrl(file){
     return new Promise((resolve, reject)=>{
@@ -1594,13 +1597,30 @@
     });
   }
 
+  function totalAttachmentBytes(){
+    let total = 0;
+    state.bloodTests.entries.forEach(e=>{
+      if(e.fileData) total += e.fileData.length;
+    });
+    return total;
+  }
+
   function openBloodTestSettingsModal(){
+    const totalBytes = totalAttachmentBytes();
+    const totalKb = Math.round(totalBytes / 1024);
+    const nearLimit = totalBytes > 700 * 1024;
     openModal(`
       <h3>Blood test schedule</h3>
       <div class="field">
         <label for="bt-interval">Test every how many days</label>
         <input type="number" id="bt-interval" min="1" step="1" value="${state.bloodTests.intervalDays || 90}">
         <div class="hint">Used to calculate "next test due" from your most recently logged test.</div>
+      </div>
+      <div class="hint" style="color:${nearLimit ? "var(--red)" : "var(--ink-faint)"};">
+        Total attached files: ${totalKb}KB combined.
+        ${nearLimit
+          ? " This is getting close to GitHub's ~1MB read limit — sync may start failing to pull on other devices. Consider removing or shrinking older attachments."
+          : " GitHub sync can silently fail to read data back once your total data passes roughly 1MB, so keep an eye on this as you add more."}
       </div>
       <div class="modal-actions">
         <div></div>
@@ -1636,7 +1656,7 @@
       <div class="field">
         <label for="bt-file">Test results document (optional)</label>
         <input type="file" id="bt-file" accept=".pdf,image/*">
-        <div class="hint">PDF or image. Stored directly in your data — keep it under a few MB so backups and GitHub sync stay quick.</div>
+        <div class="hint">PDF or image, ideally under 200KB (roughly a single compressed scanned page). GitHub's Gist sync silently fails to read back files over ~1MB total, so keeping attachments small matters more than it might seem — a large file can break syncing on other devices even if it saves fine here.</div>
       </div>
       <div class="modal-actions">
         <div></div>
@@ -1658,11 +1678,11 @@
 
       if(file){
         if(file.size > BT_FILE_MAX_BYTES){
-          toast("That file is too large (over 8MB) — try a smaller scan or export");
+          toast("That file is too large (over 500KB) — try a smaller scan or a more compressed export");
           return;
         }
         if(file.size > BT_FILE_WARN_BYTES){
-          if(!confirm(`This file is ${(file.size/1024/1024).toFixed(1)}MB — it'll be stored directly in your data and will slow down GitHub sync and backups. Continue?`)) return;
+          if(!confirm(`This file is ${(file.size/1024).toFixed(0)}KB — GitHub sync can silently fail to read back files once your total data passes ~1MB, so large attachments risk breaking sync on other devices. Continue anyway?`)) return;
         }
         try{
           entry.fileData = await readFileAsDataUrl(file);
@@ -1756,11 +1776,11 @@
       const file = fileInput.files[0];
       if(file){
         if(file.size > BT_FILE_MAX_BYTES){
-          toast("That file is too large (over 8MB) — try a smaller scan or export");
+          toast("That file is too large (over 500KB) — try a smaller scan or a more compressed export");
           return;
         }
         if(file.size > BT_FILE_WARN_BYTES){
-          if(!confirm(`This file is ${(file.size/1024/1024).toFixed(1)}MB — it'll be stored directly in your data and will slow down GitHub sync and backups. Continue?`)) return;
+          if(!confirm(`This file is ${(file.size/1024).toFixed(0)}KB — GitHub sync can silently fail to read back files once your total data passes ~1MB, so large attachments risk breaking sync on other devices. Continue anyway?`)) return;
         }
         try{
           entry.fileData = await readFileAsDataUrl(file);
