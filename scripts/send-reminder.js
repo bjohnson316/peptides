@@ -100,6 +100,24 @@ function currentLocalHour() {
   return parseInt(fmt.format(new Date()), 10) % 24;
 }
 
+function bloodTestAlert(data, todayKey) {
+  const bt = data.bloodTests;
+  if (!bt || !Array.isArray(bt.entries) || bt.entries.length === 0) return null;
+  const last = bt.entries.slice().sort((a, b) => b.ts - a.ts)[0];
+  const intervalDays = bt.intervalDays || 90;
+  const dueTs = localDayKey(last.ts, TIMEZONE) + intervalDays * DAY_MS;
+  const daysUntil = Math.round((dueTs - todayKey) / DAY_MS);
+
+  if (daysUntil < 0) {
+    const n = Math.abs(daysUntil);
+    return `Blood test overdue by ${n} day${n === 1 ? "" : "s"}`;
+  }
+  if (daysUntil === 1) {
+    return "Blood test due tomorrow";
+  }
+  return null;
+}
+
 async function main() {
   const hour = currentLocalHour();
   if (!FORCE && hour !== REMINDER_HOUR) {
@@ -134,20 +152,33 @@ async function main() {
     }
   }
 
-  if (due.length === 0 && !FORCE) {
+  const bloodAlert = bloodTestAlert(data, todayStart);
+
+  if (due.length === 0 && !bloodAlert && !FORCE) {
     console.log("Nothing due today — no email sent.");
     return;
   }
 
-  const subject = due.length === 0
-    ? "Peptides: test reminder (nothing due today)"
-    : due.length === 1
-      ? `Peptides: ${due[0]} due today`
-      : `Peptides: ${due.length} doses due today`;
+  const sections = [];
+  if (due.length > 0) {
+    sections.push(due.length === 1 ? `${due[0]} is due today.` : `Doses due today:\n${due.map(n => `- ${n}`).join("\n")}`);
+  }
+  if (bloodAlert) {
+    sections.push(bloodAlert + ".");
+  }
 
-  const textBody = due.length === 0
-    ? "This is a test run — nothing is actually due today."
-    : `Due today:\n\n${due.map(n => `- ${n}`).join("\n")}`;
+  const subjectParts = [];
+  if (due.length === 1) subjectParts.push(`${due[0]} due today`);
+  else if (due.length > 1) subjectParts.push(`${due.length} doses due today`);
+  if (bloodAlert) subjectParts.push(bloodAlert);
+
+  const subject = subjectParts.length > 0
+    ? `Peptides: ${subjectParts.join(" — ")}`
+    : "Peptides: test reminder (nothing due today)";
+
+  const textBody = sections.length > 0
+    ? sections.join("\n\n")
+    : "This is a test run — nothing is actually due today.";
 
   const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
