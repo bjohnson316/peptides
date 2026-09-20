@@ -36,13 +36,33 @@ everything is stored in your browser's local storage on whatever device you use 
   optional notes, and an optional results document (PDF or image) attached directly to that
   entry. Set how often you want testing to repeat (every N days) and it shows the same
   overdue/due-today/on-track status as compounds do, calculated from your most recent test.
-  Tap any past entry to view/download its attached file, replace it, or delete the entry. The
-  file is stored as part of your data (same as everything else), so keep individual files to a
-  few MB — a confirmation prompt warns you before saving anything large, and files over 8MB are
-  rejected outright to protect local storage and GitHub sync. Entries (and their attached files)
-  can be archived to tidy up the list, same idea as archiving in the main history — a "Show
-  archived" toggle brings them back into view, and archiving never affects the due-date
-  calculation, which still counts your true most recent test either way.
+  Tap any past entry to view/download its attached file, replace it, or delete the entry. Entries
+  (and their attached files) can be archived to tidy up the list, same idea as archiving in the
+  main history — a "Show archived" toggle brings them back into view, and archiving never affects
+  the due-date calculation, which still counts your true most recent test either way.
+
+  **On file size:** by default, attached files are embedded directly in your synced data (same
+  place as everything else), and GitHub's Gist API silently fails to properly return any file
+  over roughly 1MB when reading it back — so individual attachments are capped at 500KB (with a
+  warning past 200KB) to stay safely under that ceiling. The settings modal (⋯) shows your running
+  total so you can see how close you are.
+
+  **To remove that limit entirely, connect Cloudinary** — a free file-hosting service — from that
+  same settings modal. Once connected, new file uploads go straight to your own Cloudinary account
+  instead of into your synced data, so there's no practical size limit and nothing to track. Setup:
+
+  1. Create a free account at [cloudinary.com](https://cloudinary.com).
+  2. Your **Cloud name** is shown right on the dashboard homepage after logging in.
+  3. Go to **Settings → Upload → Upload presets → Add upload preset**, set **Signing Mode** to
+     **Unsigned**, and save it — note the preset name it's given (or set your own).
+  4. In the app, open Blood Test settings (⋯) → **Connect Cloudinary**, and enter that cloud name
+     and preset name.
+
+  Both values are safe to store in the app (they can't be used to read your account or anything
+  else in it — only to upload to that one preset), which is why this works without a backend
+  server. Files already embedded from before you connected Cloudinary keep working as-is; only
+  new uploads go to Cloudinary. Disconnecting doesn't delete anything already uploaded — it just
+  stops new uploads from going there.
 - Optional 6pm email reminder on any day a dose is due, free via your own email account (needs
   GitHub sync — see below).
 - A full metrics report, also exportable as a real PDF with no external dependency: overview

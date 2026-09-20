@@ -1585,8 +1585,44 @@
   document.getElementById("btn-github").addEventListener("click", openGithubSettingsModal);
 
   // ---------- blood tests: file handling + modals ----------
-  const BT_FILE_WARN_BYTES = 200 * 1024;   // soft warning past this size
-  const BT_FILE_MAX_BYTES = 500 * 1024;    // hard refuse past this size
+  const BT_FILE_WARN_BYTES = 200 * 1024;   // soft warning past this size (only applies without Cloudinary)
+  const BT_FILE_MAX_BYTES = 500 * 1024;    // hard refuse past this size (only applies without Cloudinary)
+  const BT_FILE_MAX_BYTES_CLOUDINARY = 50 * 1024 * 1024; // generous sanity cap for direct-to-Cloudinary uploads
+
+  const CLOUDINARY_CONFIG_KEY = "injTrackerCloudinaryConfig_v1";
+  function getCloudinaryConfig(){
+    try{ return JSON.parse(localStorage.getItem(CLOUDINARY_CONFIG_KEY)); }catch(e){ return null; }
+  }
+  function setCloudinaryConfig(cfg){
+    localStorage.setItem(CLOUDINARY_CONFIG_KEY, JSON.stringify(cfg));
+  }
+  function clearCloudinaryConfig(){
+    localStorage.removeItem(CLOUDINARY_CONFIG_KEY);
+  }
+  function cloudinaryConnected(){
+    const cfg = getCloudinaryConfig();
+    return !!(cfg && cfg.cloudName && cfg.uploadPreset);
+  }
+
+  async function uploadToCloudinary(file){
+    const cfg = getCloudinaryConfig();
+    if(!cfg || !cfg.cloudName || !cfg.uploadPreset) throw new Error("Cloudinary isn't connected");
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", cfg.uploadPreset);
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${cfg.cloudName}/auto/upload`, {
+      method: "POST",
+      body: formData
+    });
+    if(!res.ok){
+      const body = await res.text().catch(()=> "");
+      let msg = `Cloudinary upload failed (${res.status})`;
+      if(res.status === 400 || res.status === 401) msg = "Cloudinary rejected the upload — check your cloud name and upload preset";
+      throw new Error(msg + (body ? `: ${body.slice(0,200)}` : ""));
+    }
+    const data = await res.json();
+    return { url: data.secure_url, publicId: data.public_id };
+  }
 
   function readFileAsDataUrl(file){
     return new Promise((resolve, reject)=>{
@@ -1595,6 +1631,35 @@
       reader.onerror = ()=> reject(new Error("Couldn't read that file"));
       reader.readAsDataURL(file);
     });
+  }
+
+  // Handles a chosen file for a blood test entry: uploads to Cloudinary if connected
+  // (keeping the synced JSON tiny regardless of file size), otherwise falls back to
+  // embedding the file directly in the entry (subject to the small size limits above).
+  async function attachFileToEntry(entry, file){
+    if(cloudinaryConnected()){
+      if(file.size > BT_FILE_MAX_BYTES_CLOUDINARY){
+        throw new Error("That file is larger than 50MB — even Cloudinary has practical limits for a single upload");
+      }
+      const uploaded = await uploadToCloudinary(file);
+      entry.fileUrl = uploaded.url;
+      entry.filePublicId = uploaded.publicId;
+      entry.fileName = file.name;
+      entry.fileType = file.type;
+      delete entry.fileData; // don't double-store if this entry previously had an embedded copy
+      return;
+    }
+    if(file.size > BT_FILE_MAX_BYTES){
+      throw new Error("That file is too large (over 500KB) — connect Cloudinary in Blood Test settings to remove this limit, or use a smaller scan");
+    }
+    if(file.size > BT_FILE_WARN_BYTES){
+      if(!confirm(`This file is ${(file.size/1024).toFixed(0)}KB — GitHub sync can silently fail to read back files once your total data passes ~1MB, so large attachments risk breaking sync on other devices. Continue anyway?`)){
+        throw new Error("__cancelled__");
+      }
+    }
+    entry.fileData = await readFileAsDataUrl(file);
+    entry.fileName = file.name;
+    entry.fileType = file.type;
   }
 
   function totalAttachmentBytes(){
@@ -1609,19 +1674,42 @@
     const totalBytes = totalAttachmentBytes();
     const totalKb = Math.round(totalBytes / 1024);
     const nearLimit = totalBytes > 700 * 1024;
+    const cloudCfg = getCloudinaryConfig();
+    const connected = cloudinaryConnected();
+
     openModal(`
-      <h3>Blood test schedule</h3>
+      <h3>Blood test settings</h3>
       <div class="field">
         <label for="bt-interval">Test every how many days</label>
         <input type="number" id="bt-interval" min="1" step="1" value="${state.bloodTests.intervalDays || 90}">
         <div class="hint">Used to calculate "next test due" from your most recently logged test.</div>
       </div>
-      <div class="hint" style="color:${nearLimit ? "var(--red)" : "var(--ink-faint)"};">
-        Total attached files: ${totalKb}KB combined.
-        ${nearLimit
-          ? " This is getting close to GitHub's ~1MB read limit — sync may start failing to pull on other devices. Consider removing or shrinking older attachments."
-          : " GitHub sync can silently fail to read data back once your total data passes roughly 1MB, so keep an eye on this as you add more."}
+
+      <div class="field">
+        <label>File storage</label>
+        ${connected ? `
+          <div class="hint" style="color:var(--teal); text-transform:none; letter-spacing:0; font-size:13px;">
+            Connected to Cloudinary (cloud name: ${escapeHtml(cloudCfg.cloudName)}). New file uploads go
+            straight there instead of into your synced data — no practical size limit.
+          </div>
+        ` : `
+          <div class="hint">
+            Not connected. Files are currently embedded directly in your data, which GitHub sync can
+            only read back reliably up to ~1MB total — that's why individual attachments are capped
+            at 500KB right now. Connect Cloudinary (a free file-hosting service) to remove that limit.
+          </div>
+        `}
+        <div style="margin-top:8px;">
+          <button type="button" class="btn small" id="bt-cloudinary-configure">${connected ? "Reconfigure Cloudinary" : "Connect Cloudinary"}</button>
+          ${connected ? `<button type="button" class="btn ghost small" id="bt-cloudinary-disconnect">Disconnect</button>` : ""}
+        </div>
       </div>
+
+      <div class="hint" style="color:${nearLimit ? "var(--red)" : "var(--ink-faint)"};">
+        Embedded attachments (not on Cloudinary): ${totalKb}KB combined.
+        ${nearLimit ? " This is getting close to GitHub's ~1MB read limit — consider moving these to Cloudinary or removing older ones." : ""}
+      </div>
+
       <div class="modal-actions">
         <div></div>
         <div class="right">
@@ -1631,6 +1719,16 @@
       </div>
     `);
     document.getElementById("bt-settings-cancel").addEventListener("click", closeModal);
+    document.getElementById("bt-cloudinary-configure").addEventListener("click", openCloudinarySettingsModal);
+    const disconnectBtn = document.getElementById("bt-cloudinary-disconnect");
+    if(disconnectBtn){
+      disconnectBtn.addEventListener("click", ()=>{
+        if(!confirm("Disconnect Cloudinary? Already-uploaded files stay online and keep working — this only stops new uploads from going there.")) return;
+        clearCloudinaryConfig();
+        closeModal();
+        toast("Cloudinary disconnected");
+      });
+    }
     document.getElementById("bt-settings-save").addEventListener("click", ()=>{
       const n = parseInt(document.getElementById("bt-interval").value, 10);
       state.bloodTests.intervalDays = (Number.isFinite(n) && n >= 1) ? n : 90;
@@ -1638,6 +1736,51 @@
       render();
       persist();
       toast("Schedule updated");
+    });
+  }
+
+  function openCloudinarySettingsModal(){
+    const cfg = getCloudinaryConfig() || {};
+    openModal(`
+      <h3>Connect Cloudinary</h3>
+      <p class="hint" style="margin-bottom:14px; line-height:1.5; text-transform:none; letter-spacing:0; font-size:13px;">
+        Cloudinary is a free file-hosting service — files upload directly from your browser to your
+        own Cloudinary account, so they never touch your synced data or GitHub. You'll need a free
+        account and an <b>unsigned upload preset</b>, which lets this app upload without exposing any
+        secret key.
+      </p>
+      <div class="field">
+        <label for="cd-cloudname">Cloud name</label>
+        <input type="text" id="cd-cloudname" value="${escapeHtml(cfg.cloudName || "")}" placeholder="e.g. dxxxxx1a2">
+        <div class="hint">Found on your Cloudinary dashboard homepage.</div>
+      </div>
+      <div class="field">
+        <label for="cd-preset">Unsigned upload preset name</label>
+        <input type="text" id="cd-preset" value="${escapeHtml(cfg.uploadPreset || "")}" placeholder="e.g. peptides_unsigned">
+        <div class="hint">Settings → Upload → Upload presets → Add upload preset → set Signing Mode to "Unsigned".</div>
+      </div>
+      <div class="modal-actions">
+        <div></div>
+        <div class="right">
+          <button class="btn ghost" id="cd-cancel" type="button">Cancel</button>
+          <button class="btn primary" id="cd-save" type="button">Save</button>
+        </div>
+      </div>
+      <p class="hint" id="cd-status" style="margin-top:12px;"></p>
+    `);
+    document.getElementById("cd-cancel").addEventListener("click", closeModal);
+    document.getElementById("cd-save").addEventListener("click", ()=>{
+      const cloudName = document.getElementById("cd-cloudname").value.trim();
+      const uploadPreset = document.getElementById("cd-preset").value.trim();
+      const statusEl = document.getElementById("cd-status");
+      if(!cloudName || !uploadPreset){
+        statusEl.textContent = "Both fields are required.";
+        return;
+      }
+      setCloudinaryConfig({ cloudName, uploadPreset });
+      closeModal();
+      openBloodTestSettingsModal();
+      toast("Cloudinary connected");
     });
   }
 
@@ -1656,7 +1799,9 @@
       <div class="field">
         <label for="bt-file">Test results document (optional)</label>
         <input type="file" id="bt-file" accept=".pdf,image/*">
-        <div class="hint">PDF or image, ideally under 200KB (roughly a single compressed scanned page). GitHub's Gist sync silently fails to read back files over ~1MB total, so keeping attachments small matters more than it might seem — a large file can break syncing on other devices even if it saves fine here.</div>
+        <div class="hint">${cloudinaryConnected()
+          ? "PDF or image — uploads directly to your connected Cloudinary account, so size isn't a real concern."
+          : "PDF or image, ideally under 200KB (roughly a single compressed scanned page). Without Cloudinary connected, files are embedded directly in your synced data, which GitHub sync can only read back reliably up to ~1MB total. Connect Cloudinary in Blood Test settings (⋯) to remove this limit."}</div>
       </div>
       <div class="modal-actions">
         <div></div>
@@ -1675,21 +1820,19 @@
       const file = fileInput.files[0];
 
       const entry = { id: uid(), ts, notes, archived: false };
+      const saveBtn = document.getElementById("bt-log-save");
 
       if(file){
-        if(file.size > BT_FILE_MAX_BYTES){
-          toast("That file is too large (over 500KB) — try a smaller scan or a more compressed export");
-          return;
-        }
-        if(file.size > BT_FILE_WARN_BYTES){
-          if(!confirm(`This file is ${(file.size/1024).toFixed(0)}KB — GitHub sync can silently fail to read back files once your total data passes ~1MB, so large attachments risk breaking sync on other devices. Continue anyway?`)) return;
-        }
         try{
-          entry.fileData = await readFileAsDataUrl(file);
-          entry.fileName = file.name;
-          entry.fileType = file.type;
+          if(cloudinaryConnected()){
+            saveBtn.disabled = true;
+            saveBtn.textContent = "Uploading…";
+          }
+          await attachFileToEntry(entry, file);
         }catch(err){
-          toast("Couldn't attach that file");
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save";
+          if(err.message !== "__cancelled__") toast(err.message || "Couldn't attach that file");
           return;
         }
       }
@@ -1719,12 +1862,12 @@
         <label>Test results document</label>
         ${entry.fileName ? `
           <div class="check-row" style="justify-content:space-between;">
-            <a href="${entry.fileData}" download="${escapeHtml(entry.fileName)}" target="_blank" class="btn small">📄 ${escapeHtml(pdfTruncate(entry.fileName, 28))} — view/download</a>
+            <a href="${entry.fileUrl || entry.fileData}" download="${escapeHtml(entry.fileName)}" target="_blank" class="btn small">📄 ${escapeHtml(pdfTruncate(entry.fileName, 28))} — view/download</a>
           </div>
           <button type="button" class="btn ghost small" id="bt-remove-file" style="margin-top:6px;">Remove attached file</button>
         ` : `<div class="hint">No file attached.</div>`}
         <input type="file" id="bt-edit-file" accept=".pdf,image/*" style="margin-top:10px;">
-        <div class="hint">Choosing a new file here replaces the current one.</div>
+        <div class="hint">Choosing a new file here replaces the current one.${cloudinaryConnected() ? " Uploads directly to your connected Cloudinary account." : ""}</div>
       </div>
       <div class="modal-actions">
         <div>
@@ -1774,24 +1917,25 @@
 
       const fileInput = document.getElementById("bt-edit-file");
       const file = fileInput.files[0];
+      const saveBtn = document.getElementById("bt-edit-save");
+
       if(file){
-        if(file.size > BT_FILE_MAX_BYTES){
-          toast("That file is too large (over 500KB) — try a smaller scan or a more compressed export");
-          return;
-        }
-        if(file.size > BT_FILE_WARN_BYTES){
-          if(!confirm(`This file is ${(file.size/1024).toFixed(0)}KB — GitHub sync can silently fail to read back files once your total data passes ~1MB, so large attachments risk breaking sync on other devices. Continue anyway?`)) return;
-        }
         try{
-          entry.fileData = await readFileAsDataUrl(file);
-          entry.fileName = file.name;
-          entry.fileType = file.type;
+          if(cloudinaryConnected()){
+            saveBtn.disabled = true;
+            saveBtn.textContent = "Uploading…";
+          }
+          await attachFileToEntry(entry, file);
         }catch(err){
-          toast("Couldn't attach that file");
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save";
+          if(err.message !== "__cancelled__") toast(err.message || "Couldn't attach that file");
           return;
         }
       } else if(removeFile){
         delete entry.fileData;
+        delete entry.fileUrl;
+        delete entry.filePublicId;
         delete entry.fileName;
         delete entry.fileType;
       }
