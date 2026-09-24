@@ -100,6 +100,27 @@ function currentLocalHour() {
   return parseInt(fmt.format(new Date()), 10) % 24;
 }
 
+function centralDateString(ts) {
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+  return fmt.format(new Date(ts)); // "YYYY-MM-DD"
+}
+
+async function ghUpdateGist(gistId, filename, content) {
+  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${GIST_TOKEN}`,
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ files: { [filename]: { content } } })
+  });
+  if (!res.ok) {
+    throw new Error(`Gist update failed: ${res.status} ${await res.text()}`);
+  }
+}
+
 function bloodTestAlert(data, todayKey) {
   const bt = data.bloodTests;
   if (!bt || !Array.isArray(bt.entries) || bt.entries.length === 0) return null;
@@ -120,9 +141,13 @@ function bloodTestAlert(data, todayKey) {
 
 async function main() {
   const hour = currentLocalHour();
-  if (!FORCE && hour !== REMINDER_HOUR) {
-    console.log(`Local hour in ${TIMEZONE} is ${hour}, not ${REMINDER_HOUR} — skipping. ` +
-      `(Two cron triggers exist to handle DST; only one matches at a time.)`);
+  // GitHub's scheduled runs can fire late — sometimes hours late during busy periods — so an
+  // exact hour match is too brittle: a delayed run would silently miss its own window and
+  // never send. Instead, treat REMINDER_HOUR as "eligible from here on" and rely on the
+  // same-day dedup check below (via a marker written back to the gist) to stop the other
+  // daily cron trigger, or any later retry, from sending a second email the same day.
+  if (!FORCE && hour < REMINDER_HOUR) {
+    console.log(`Local hour in ${TIMEZONE} is ${hour}, before ${REMINDER_HOUR} — too early, skipping.`);
     return;
   }
 
@@ -139,8 +164,15 @@ async function main() {
   const gist = await res.json();
   const filenames = Object.keys(gist.files || {});
   if (filenames.length === 0) throw new Error("Gist has no files");
-  const content = gist.files[filenames[0]].content;
+  const filename = filenames[0];
+  const content = gist.files[filename].content;
   const data = JSON.parse(content);
+
+  const todayDateStr = centralDateString(Date.now());
+  if (!FORCE && data._lastReminderSentDate === todayDateStr) {
+    console.log(`Already sent a reminder today (${todayDateStr}) — skipping duplicate.`);
+    return;
+  }
 
   const todayStart = localDayKey(Date.now(), TIMEZONE);
   const due = [];
@@ -195,6 +227,17 @@ async function main() {
   });
 
   console.log("Reminder emailed:", subject);
+
+  if (!FORCE) {
+    data._lastReminderSentDate = todayDateStr;
+    try {
+      await ghUpdateGist(GIST_ID, filename, JSON.stringify(data));
+    } catch (err) {
+      // The email already went out successfully — don't fail the run over a marker write
+      // failing, but do flag it, since without it a later run today could send a duplicate.
+      console.error("Warning: sent the email but couldn't record the sent-date marker:", err.message);
+    }
+  }
 }
 
 main().catch(err => {
