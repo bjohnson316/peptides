@@ -1,17 +1,24 @@
 name: Dose Reminder
 
-# Fires twice daily in UTC — one time slot lines up with 6pm Central during
-# Standard Time, the other during Daylight Time. The script itself checks the
-# real local hour and only sends on the one that actually matches 6pm, so you
-# never get a duplicate and never need to touch this file for DST.
+# Fires several times through the evening in UTC, covering roughly 6pm-11pm Central regardless
+# of DST. This is deliberately redundant: GitHub's scheduled runs can fire late (sometimes by
+# hours) during busy periods, so a single trigger risks missing its window entirely. The script
+# treats 6pm as "eligible from here on" rather than an exact match, and writes a same-day marker
+# back to the synced data after sending — so whichever run actually happens first sends the
+# email, and every later run that day (the other triggers, retries, delays) just sees the
+# marker and skips cleanly. No duplicate emails, and no missed evenings from a slow run.
 on:
   schedule:
-    - cron: '0 0 * * *'   # 6pm CST (UTC-6)
-    - cron: '0 23 * * *'  # 6pm CDT (UTC-5)
+    - cron: '0 23 * * *'  # ~6pm Central
+    - cron: '0 0 * * *'   # ~6-7pm Central
+    - cron: '0 1 * * *'   # ~7-8pm Central
+    - cron: '0 2 * * *'   # ~8-9pm Central
+    - cron: '0 3 * * *'   # ~9-10pm Central
+    - cron: '0 4 * * *'   # ~10-11pm Central
   workflow_dispatch:
     inputs:
       force:
-        description: "Send a test email right now, ignoring the time check"
+        description: "Send a test email right now, ignoring the time and dedup checks"
         type: boolean
         default: false
 
