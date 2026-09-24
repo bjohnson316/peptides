@@ -64,7 +64,8 @@ everything is stored in your browser's local storage on whatever device you use 
   new uploads go to Cloudinary. Disconnecting doesn't delete anything already uploaded — it just
   stops new uploads from going there.
 - Optional 6pm email reminder on any day a dose is due, free via your own email account (needs
-  GitHub sync — see below).
+  GitHub sync — see below). The same email also flags your blood test schedule when it's overdue
+  or due the next day, alongside any compounds due that day.
 - A full metrics report, also exportable as a real PDF with no external dependency: overview
   counts (overdue/due today/on track), per-compound stats — total doses logged, first/last
   logged dates, average interval between doses, and injection-site usage breakdown — an overall
@@ -142,7 +143,7 @@ something's due, using your own email account's SMTP — no paid service require
    - `SMTP_PASS` — the 16-character app password from step 2 (not your regular Gmail password)
    - `EMAIL_TO` — the address you want reminders sent to (can be the same Gmail address)
 4. That's it. It runs automatically at 6pm Central and emails you a summary of anything due or
-   overdue that day — nothing sends if nothing's due.
+   overdue that day — compounds and blood tests both — and nothing sends if nothing's due.
 
 Using a different provider (Outlook, Yahoo, a work email, etc.) works the same way — just use
 that provider's SMTP host/port and an app password from their security settings instead of steps
@@ -154,11 +155,13 @@ whether anything's actually due, so you can confirm it's wired up correctly with
 6pm.
 
 **Notes:** the schedule is set for `America/Chicago`; edit `REMINDER_TIMEZONE` and `REMINDER_HOUR`
-in the workflow file if that's not your timezone. It runs on two cron triggers to handle daylight
-saving automatically — the script checks the real local hour and only ever sends once a day.
-GitHub's scheduled jobs can run a few minutes late during high load, so treat 6pm as approximate.
-saving automatically — the script checks the real local hour and only ever sends once a day.
-GitHub's scheduled jobs can run a few minutes late during high load, so treat 6pm as approximate.
+in the workflow file if that's not your timezone. It fires several times through the evening
+(roughly 6pm–11pm Central, covering both sides of daylight saving) rather than just once — this
+is deliberate redundancy, since GitHub's scheduled jobs can sometimes run quite late during busy
+periods, occasionally by hours. The script treats your reminder hour as "eligible from here on,"
+not an exact match, and records a same-day marker back in your synced data once it sends — so
+whichever run actually happens first sends the email, and every other run that day just sees the
+marker and skips. You'll never get duplicates, and a slow evening won't cause a missed reminder.
 
 This is a personal tracking tool, not medical guidance — it just does the date math on when your
 next dose is due based on what you tell it.
