@@ -83,10 +83,34 @@ function nextDueForWeekdays(compound, last) {
   return d;
 }
 
+// Pausing: mirrors index.html. A compound has pausePeriods [{start, end}]; end == null means
+// it's paused right now, and paused compounds never trigger reminders.
+function isPaused(compound) {
+  return (compound.pausePeriods || []).some(p => p.end == null);
+}
+function lastResumeTs(compound) {
+  let latest = null;
+  for (const p of (compound.pausePeriods || [])) {
+    if (p.end != null && (latest === null || p.end > latest)) latest = p.end;
+  }
+  return latest;
+}
+
 function nextDueFor(compound, logs) {
   const last = lastLogFor(logs, compound.id);
   if (!last) return null; // never logged yet — nothing to remind about
   const cfg = FREQUENCIES[compound.frequency];
+
+  // Resumed after a break with no dose logged since: restart from the resume day rather than
+  // treating the whole break as overdue.
+  const resumed = lastResumeTs(compound);
+  if (resumed !== null && resumed > last.ts) {
+    const dayBefore = { ts: resumed - DAY_MS };
+    if (cfg.cycle) return nextDueForCycle(compound, dayBefore);
+    if (cfg.weekdays) return nextDueForWeekdays(compound, dayBefore);
+    return localDayKey(resumed, TIMEZONE);
+  }
+
   if (cfg.cycle) return nextDueForCycle(compound, last);
   if (cfg.weekdays) return nextDueForWeekdays(compound, last);
   const intervalDays = cfg.custom ? (compound.customDays || 1) : cfg.days;
@@ -177,6 +201,7 @@ async function main() {
   const todayStart = localDayKey(Date.now(), TIMEZONE);
   const due = [];
   for (const c of (data.compounds || [])) {
+    if (isPaused(c)) continue; // off this one for now — no reminders
     const dueTs = nextDueFor(c, data.logs || []);
     if (dueTs === null) continue;
     if (dueTs <= todayStart) {
