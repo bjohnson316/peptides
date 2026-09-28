@@ -29,6 +29,12 @@ everything is stored in your browser's local storage on whatever device you use 
 - Dose can be entered directly, or calculated for you: enter the peptide's concentration (mg/mL)
   and how many units you draw on a standard U-100 insulin syringe, and it works out the mg dose
   and uses that as the usual dose going forward.
+- Any compound can be **paused** when you're off it for a while (edit the compound → Status →
+  Paused). A paused compound shows as dimmed on the dashboard, doesn't count as due or overdue,
+  isn't counted as "missed" in the report, and gets no email reminders. Tap **Resume** on its card
+  (or set it back to Active) when you restart — the schedule picks up from that day rather than
+  treating the whole break as overdue. Pause history is kept, so the report can tell a deliberate
+  break from genuinely missed doses.
 - Each compound has a free-text notes field — reconstitution steps, storage instructions,
   prescriber notes, anything worth keeping handy. A short preview shows on the dashboard row when
   a compound has notes, and they're included in the full report too.

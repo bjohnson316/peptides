@@ -159,6 +159,12 @@
   .status-text.soon{ color: var(--ink-dim); }
   .status-text.ontrack{ color: var(--teal); }
   .status-text.new{ color: var(--ink-faint); font-style:italic; }
+  .status-text.paused{ color: var(--ink-faint); font-style:italic; }
+  .row-card.paused .row-main .name,
+  .row-card.paused .meta,
+  .row-card.paused .units-line,
+  .row-card.paused .dose-line,
+  .row-card.paused .last-line{ opacity:.55; }
   .notes-preview{
     font-size:11.5px; color: var(--ink-faint); margin-top:5px;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -663,10 +669,47 @@
     return d;
   }
 
+  // ---------- pausing (off-cycle breaks) ----------
+  // A compound keeps a list of pause periods: {start, end}. end === null means it's paused right
+  // now. History is kept (instead of a single on/off flag) so reports can tell a deliberate break
+  // apart from missed doses, and so resuming can restart the schedule cleanly.
+  function isPaused(compound){
+    return (compound.pausePeriods || []).some(p => p.end == null);
+  }
+  function pausePeriodAt(compound, ts){
+    return (compound.pausePeriods || []).find(p => p.start <= ts && (p.end == null || ts < p.end)) || null;
+  }
+  function lastResumeTs(compound){
+    let latest = null;
+    (compound.pausePeriods || []).forEach(p=>{
+      if(p.end != null && (latest === null || p.end > latest)) latest = p.end;
+    });
+    return latest;
+  }
+  function pauseCompound(compound){
+    if(isPaused(compound)) return;
+    compound.pausePeriods = (compound.pausePeriods || []).concat([{ start: Date.now(), end: null }]);
+  }
+  function resumeCompound(compound){
+    (compound.pausePeriods || []).forEach(p=>{ if(p.end == null) p.end = Date.now(); });
+  }
+
   function nextDueFor(compound){
     const last = lastLogFor(compound.id);
     if(!last) return null;
     const cfg = FREQUENCIES[compound.frequency];
+
+    // Resumed after a break with no dose logged since: restart the schedule from the resume day
+    // instead of counting the whole break as "overdue".
+    const resumed = lastResumeTs(compound);
+    if(resumed !== null && resumed > last.ts){
+      const resumeDay = startOfDay(resumed);
+      const dayBefore = { ts: resumeDay - 12 * 3600000 };
+      if(cfg.cycle) return nextDueForCycle(compound, dayBefore);
+      if(cfg.weekdays) return nextDueForWeekdays(compound, dayBefore);
+      return resumeDay;
+    }
+
     if(cfg.cycle) return nextDueForCycle(compound, last);
     if(cfg.weekdays) return nextDueForWeekdays(compound, last);
     if(cfg.custom) return last.ts + (compound.customDays || 1) * DAY_MS;
@@ -674,6 +717,7 @@
   }
 
   function statusFor(compound){
+    if(isPaused(compound)) return { key: "paused", label: "Paused — no reminders" };
     const due = nextDueFor(compound);
     if(due === null) return { key: "new", label: "Not started — log first dose" };
     const now = Date.now();
@@ -778,13 +822,14 @@
     }
     state.compounds.forEach(c=>{
       const s = statusFor(c);
-      const ledClass = s.key === "overdue" ? "red" : s.key === "today" ? "amber pulse" : s.key === "new" ? "grey" : "";
+      const ledClass = s.key === "overdue" ? "red" : s.key === "today" ? "amber pulse" : (s.key === "new" || s.key === "paused") ? "grey" : "";
+      const paused = s.key === "paused";
       const last = lastLogFor(c.id);
       const freqLabel = frequencyLabel(c);
       const doseStr = c.doseAmount ? `${c.doseAmount}${c.doseUnit||""}` : null;
 
       const card = document.createElement("div");
-      card.className = "row-card";
+      card.className = "row-card" + (paused ? " paused" : "");
       card.innerHTML = `
         <div class="led ${ledClass}"></div>
         <div class="row-main">
@@ -799,7 +844,9 @@
           ${c.notes ? `<div class="notes-preview" title="${escapeHtml(c.notes)}">Instructions: ${escapeHtml(pdfTruncate(c.notes, 60))}</div>` : ""}
         </div>
         <div class="row-actions">
-          <button class="btn primary small" data-log="${c.id}">Log dose</button>
+          ${paused
+            ? `<button class="btn small" data-resume="${c.id}">Resume</button>`
+            : `<button class="btn primary small" data-log="${c.id}">Log dose</button>`}
           <button class="btn ghost" data-edit="${c.id}" aria-label="Edit ${escapeHtml(c.name)}">⋯</button>
         </div>
       `;
@@ -808,6 +855,16 @@
 
     rowsEl.querySelectorAll("[data-log]").forEach(btn=>{
       btn.addEventListener("click", ()=> openLogModal(btn.dataset.log));
+    });
+    rowsEl.querySelectorAll("[data-resume]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const c = state.compounds.find(x=> x.id === btn.dataset.resume);
+        if(!c) return;
+        resumeCompound(c);
+        render();
+        persist();
+        toast(`${c.name} resumed — next dose is due on the first scheduled day from today`);
+      });
     });
     rowsEl.querySelectorAll("[data-edit]").forEach(btn=>{
       btn.addEventListener("click", ()=> openEditModal(btn.dataset.edit));
@@ -1254,6 +1311,14 @@
         <input type="text" id="e-name" value="${escapeHtml(c.name)}" placeholder="e.g. GLP-1">
       </div>
       <div class="field">
+        <label>Status</label>
+        <div class="chip-row" id="e-active-row">
+          <button type="button" class="chip ${isPaused(c)?'':'active'}" data-active="1">Active</button>
+          <button type="button" class="chip ${isPaused(c)?'active':''}" data-active="0">Paused</button>
+        </div>
+        <div class="hint">Paused = you're off this one for now. It won't show as due or overdue, drops out of the dashboard counts, and gets no email reminders. Switch back to Active (or tap Resume on its card) when you restart — the schedule picks up from that day instead of counting the break as overdue.</div>
+      </div>
+      <div class="field">
         <label>Dose entry</label>
         <div class="chip-row" id="e-dosemode-row">
           <button type="button" class="chip ${(c.doseMode||'manual')==='manual'?'active':''}" data-mode="manual">Enter dose directly</button>
@@ -1326,6 +1391,14 @@
     `);
 
     let selectedFreq = c.frequency;
+    let selectedPaused = isPaused(c);
+    document.getElementById("e-active-row").addEventListener("click", (e)=>{
+      const btn = e.target.closest("[data-active]");
+      if(!btn) return;
+      selectedPaused = btn.dataset.active === "0";
+      document.querySelectorAll("#e-active-row .chip").forEach(ch=>ch.classList.remove("active"));
+      btn.classList.add("active");
+    });
     let selectedDoseMode = c.doseMode === "calculated" ? "calculated" : "manual";
     let selectedWeekdays = new Set(c.weekdays || []);
 
@@ -1448,6 +1521,9 @@
       if(c.sites.length === 0) c.sites = DEFAULT_SITES.slice(0,2);
       c.siteIndex = c.siteIndex || 0;
       c.notes = document.getElementById("e-notes").value.trim();
+
+      if(selectedPaused && !isPaused(c)) pauseCompound(c);
+      else if(!selectedPaused && isPaused(c)) resumeCompound(c);
 
       if(isNew) state.compounds.push(c);
       closeModal();
@@ -2102,7 +2178,23 @@
           const intervalDays = cfg.custom ? (compound.customDays || 1) : cfg.days;
           dueDay = startOfDay(virtualLast.ts) + intervalDays * DAY_MS;
         }
-        if(dueDay === null || dueDay >= boundary) break;
+        if(dueDay === null) break;
+
+        // A due date that lands inside a deliberate break isn't a miss. If the break is still
+        // open, nothing more can be missed; if it ended, the schedule restarts on the resume day
+        // (mirroring nextDueFor), so keep walking from there.
+        const pause = pausePeriodAt(compound, dueDay);
+        if(pause){
+          if(pause.end == null) break;
+          const resumeDay = startOfDay(pause.end);
+          if(cfg.cycle || cfg.weekdays){
+            virtualLast = { ts: resumeDay - 12 * 3600000 };
+            continue;
+          }
+          dueDay = resumeDay;
+        }
+
+        if(dueDay >= boundary) break;
         missed.push(dueDay);
         virtualLast = { ts: dueDay };
       }
@@ -2135,10 +2227,11 @@
     const activeDoses = allLogs.filter(l=>!l.archived).length;
     const archivedDoses = totalDoses - activeDoses;
 
-    let overdue = 0, dueToday = 0, onTrack = 0, notStarted = 0;
+    let overdue = 0, dueToday = 0, onTrack = 0, notStarted = 0, pausedCount = 0;
     compounds.forEach(c=>{
       const s = statusFor(c);
-      if(s.key === "overdue") overdue++;
+      if(s.key === "paused") pausedCount++;
+      else if(s.key === "overdue") overdue++;
       else if(s.key === "today") dueToday++;
       else if(s.key === "soon" || s.key === "ontrack") onTrack++;
       else if(s.key === "new") notStarted++;
@@ -2216,7 +2309,7 @@
     return {
       totalCompounds: compounds.length,
       totalDoses, activeDoses, archivedDoses,
-      overdue, dueToday, onTrack, notStarted,
+      overdue, dueToday, onTrack, notStarted, pausedCount,
       earliestTs, latestTs,
       siteSummaryOverall,
       compoundRows,
@@ -2272,6 +2365,7 @@
       line(`Due today: ${report.dueToday}`, { indent:true });
       line(`On track: ${report.onTrack}`, { indent:true });
       if(report.notStarted > 0) line(`Not started yet: ${report.notStarted}`, { indent:true });
+      if(report.pausedCount > 0) line(`Paused: ${report.pausedCount}`, { indent:true });
       const rangeText = (report.earliestTs && report.latestTs)
         ? `${new Date(report.earliestTs).toLocaleDateString()} to ${new Date(report.latestTs).toLocaleDateString()}`
         : "No doses logged yet";
